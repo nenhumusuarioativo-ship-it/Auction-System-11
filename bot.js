@@ -1,10 +1,13 @@
 const { ReadableStream } = require('web-streams-polyfill');
 global.ReadableStream = ReadableStream;
 
-const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle, ApplicationCommandOptionType, MessageFlags, StringSelectMenuBuilder } = require('discord.js');
+require('dotenv').config();
+
+const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle, ApplicationCommandOptionType, MessageFlags, StringSelectMenuBuilder, userMention } = require('discord.js');
 const config = require('./config.json');
 const fs = require('fs');
 const redis = require('redis');
+let uuidv4;
 
 // Function to increment version automatically
 function incrementVersion(currentVersion) {
@@ -62,8 +65,8 @@ const ERROR_CODES = {
   'E04': 'You cannot make offers on your own trade',
   'E05': 'Only administrators can use this command',
   
-  // Trade errors (06-20)
-  'E06': 'You cannot create a trade with more than 25 items',
+  // Trade errors (06-15)
+  'E06': 'You cannot create a trade with more than 100 items',
   'E07': 'No trade found with that ID',
   'E08': 'Trade already accepted by another user',
   'E09': 'Invalid trade offer',
@@ -73,139 +76,595 @@ const ERROR_CODES = {
   'E13': 'Insufficient diamonds',
   'E14': 'Cannot add more items to this trade',
   'E15': 'Invalid offer amount',
-  'E16': 'Maximum number of simultaneous trades reached',
-  'E17': 'You must wait before creating another trade',
-  'E18': 'Trade setup cancelled',
-  'E19': 'Items list cannot exceed 100 items',
-  'E20': 'Invalid diamonds amount',
   
-  // Auction errors (21-35)
-  'E21': 'No auction running in this channel',
-  'E22': 'Auction has already started',
-  'E23': 'Auction has expired',
-  'E24': 'Bid must be higher than current bid',
-  'E25': 'Invalid bid amount',
-  'E26': 'Cannot bid on your own auction',
-  'E27': 'Auction already has a winner',
-  'E28': 'No bids placed on this auction',
-  'E29': 'Cannot accept an offer without bids',
-  'E30': 'Auction setup requires valid parameters',
-  'E31': 'Auction already running in this channel',
-  'E32': 'Invalid auction duration',
-  'E33': 'Cannot end auction that is not running',
-  'E34': 'Auction items list is empty',
-  'E35': 'Auction cancelled by admin',
+  // Auction errors (16-25)
+  'E16': 'No auction running in this channel',
+  'E17': 'Auction has already started',
+  'E18': 'Auction has expired',
+  'E19': 'Bid must be higher than current bid',
+  'E20': 'Invalid bid amount',
+  'E21': 'Cannot bid on your own auction',
+  'E22': 'Auction already has a winner',
+  'E23': 'No bids placed on this auction',
+  'E24': 'Cannot accept an offer without bids',
+  'E25': 'Auction setup requires valid parameters',
   
-  // Inventory errors (36-50)
-  'E36': 'Inventory not found',
-  'E37': 'Item not found in inventory',
-  'E38': 'Cannot remove item from inventory',
-  'E39': 'Inventory is empty',
-  'E40': 'Invalid inventory data',
-  'E41': 'Cannot edit another user\'s inventory',
-  'E42': 'Item quantity must be at least 1',
-  'E43': 'Maximum items reached (100)',
-  'E44': 'Inventory update failed',
-  'E45': 'Cannot transfer items',
-  'E46': 'Invalid Roblox username',
-  'E47': 'Failed to fetch Roblox profile',
-  'E48': 'Inventory save failed',
-  'E49': 'Duplicate item in inventory',
-  'E50': 'Inventory size exceeds limit',
+  // Inventory errors (26-35)
+  'E26': 'Inventory not found',
+  'E27': 'Item not found in inventory',
+  'E28': 'Cannot remove item from inventory',
+  'E29': 'Inventory is empty',
+  'E30': 'Invalid inventory data',
+  'E31': 'Cannot edit another user\'s inventory',
+  'E32': 'Item quantity must be at least 1',
+  'E33': 'Maximum items reached (100)',
+  'E34': 'Inventory update failed',
+  'E35': 'Cannot transfer items',
   
-  // Giveaway errors (51-65)
-  'E51': 'No giveaway found',
-  'E52': 'Giveaway has expired',
-  'E53': 'You already entered this giveaway',
-  'E54': 'Giveaway setup requires valid parameters',
-  'E55': 'Cannot end giveaway that hasn\'t started',
-  'E56': 'No entries in this giveaway',
-  'E57': 'Giveaway already ended',
-  'E58': 'Invalid giveaway configuration',
-  'E59': 'Cannot join your own giveaway',
-  'E60': 'Giveaway item limit exceeded',
-  'E61': 'You lack permission to create giveaways',
-  'E62': 'Maximum giveaways reached',
-  'E63': 'Invalid giveaway duration',
-  'E64': 'Giveaway cancelled',
-  'E65': 'Failed to select winner',
+  // Giveaway errors (36-45)
+  'E36': 'No giveaway found',
+  'E37': 'Giveaway has expired',
+  'E38': 'You already entered this giveaway',
+  'E39': 'Giveaway setup requires valid parameters',
+  'E40': 'Cannot end giveaway that hasn\'t started',
+  'E41': 'No entries in this giveaway',
+  'E42': 'Giveaway already ended',
+  'E43': 'Invalid giveaway configuration',
+  'E44': 'Cannot join your own giveaway',
+  'E45': 'Giveaway item limit exceeded',
   
-  // System errors (66-80)
-  'E66': 'Failed to save data to Redis',
-  'E67': 'Failed to load data from Redis',
-  'E68': 'Database connection error',
-  'E69': 'Invalid command parameters',
-  'E70': 'An unexpected error occurred. Please try again later',
-  'E71': 'Message not found',
-  'E72': 'Channel not found',
-  'E73': 'User not found',
-  'E74': 'Operation timed out',
-  'E75': 'Rate limit exceeded - try again in a moment',
-  'E76': 'Command execution failed',
-  'E77': 'Missing required permissions',
-  'E78': 'Invalid user input',
-  'E79': 'Discord API error',
-  'E80': 'Bot status check failed'
+  // System errors (46-55)
+  'E46': 'Failed to save data to Redis',
+  'E47': 'Failed to load data from Redis',
+  'E48': 'Database connection error',
+  'E49': 'Invalid command parameters',
+  'E50': 'An unexpected error occurred. Please try again later',
+  'E51': 'Message not found',
+  'E52': 'Channel not found',
+  'E53': 'User not found',
+  'E54': 'Operation timed out',
+  'E55': 'Rate limit exceeded - try again in a moment',
+  'E99': 'An unexpected error occurred. Please try again.',
+  
+  // File upload errors (56-60)
+  'E56': 'Please upload an image file',
+  'E57': 'Trade proof channel not found',
+  'E58': 'Trade no longer exists',
+  'E59': 'Auction proof channel not found',
+  'E60': 'Auction no longer exists',
+  
+  // Giveaway proof errors (61-65)
+  'E61': 'Giveaway proof channel not found',
+  'E62': 'Giveaway no longer exists',
+  'E63': 'Invalid proof type',
+  'E64': 'No bot messages found in this channel',
+  'E65': 'An error occurred while clearing bot messages',
+  
+  // Additional errors (66-80)
+  'E64': 'This trade has already been accepted',
+  'E65': 'Cannot decline offers after the trade has been accepted',
+  'E66': 'Trade offer has been declined',
+  'E67': 'Please use the file upload feature. Reply to this message with an image attachment',
+  'E68': 'Please provide a valid image URL',
+  'E69': 'Giveaway channel not found',
+  'E70': 'Giveaway message not found',
+  'E71': 'Error processing proof image',
+  'E72': 'Only the host or admin can perform this action',
+  'E73': 'Since there\'s already a bid with only diamonds, you can only add items to your bid',
+  'E74': 'An auction is already running in the server. Please wait for it to end',
+  'E75': 'Redirect channel not found',
+  'E76': 'Please enter a valid amount of diamonds',
+  'E77': 'Invalid model. Use diamonds, items/offer, or both',
+  'E78': 'Invalid starting price',
+  'E79': 'Your bid must be higher than the current highest bid',
+  'E80': 'Please provide exactly the correct number of quantities',
+  
+  // Critical missing error codes (81-85)
+  'E81': 'You have reached your maximum trade creation limit',
+  'E82': 'You have reached your maximum auction creation limit',
+  'E83': 'You have reached your maximum giveaway creation limit',
+  'E84': 'No items available to remove',
+  'E85': 'Invalid duration. Please enter a valid time format'
 };
 
-// Function to log errors to Discord channel with detailed embed
+// Bot Logs System
+const botLogs = {
+  logs: [],
+  addLog: function(type, message, userId = null, details = {}) {
+    const logEntry = {
+      id: this.logs.length + 1,
+      type,
+      message,
+      userId,
+      timestamp: new Date().toISOString(),
+      details
+    };
+    this.logs.push(logEntry);
+    // Keep only last 100 logs
+    if (this.logs.length > 100) {
+      this.logs.shift();
+    }
+    return logEntry;
+  },
+  getLogs: function(type = null, limit = 10) {
+    let filtered = this.logs;
+    if (type) {
+      filtered = filtered.filter(log => log.type === type);
+    }
+    return filtered.slice(-limit).reverse();
+  },
+  getLogDescriptions: function() {
+    return {
+      'PROOF_SUCCESS': 'Proof image successfully uploaded and added to embed thumbnail',
+      'PROOF_ERROR': 'Error occurred during proof upload process',
+      'PROOF_TIMEOUT': 'Proof upload timed out, trade/auction marked as incomplete',
+      'PROOF_REMINDER': 'Reminder sent to users about pending proof upload',
+      'TRADE_CREATED': 'New trade offer created',
+      'TRADE_ACCEPTED': 'Trade offer accepted by user',
+      'TRADE_DECLINED': 'Trade offer declined by user',
+      'TRADE_DELETED': 'Trade deleted by user or admin',
+      'AUCTION_STARTED': 'New auction started',
+      'AUCTION_ENDED': 'Auction ended with winner',
+      'AUCTION_BID': 'Bid placed on auction',
+      'AUCTION_TIMEOUT': 'Auction ended due to timeout',
+      'GIVEAWAY_STARTED': 'New giveaway started',
+      'GIVEAWAY_ENDED': 'Giveaway ended with winner',
+      'INVENTORY_CREATED': 'User inventory created or updated',
+      'ADMIN_COMMAND': 'Admin command executed',
+      'PERMISSION_DENIED': 'User attempted action without proper permissions',
+      'INVALID_INPUT': 'User provided invalid input for command',
+      'SUSPENSION_APPLIED': 'User suspended for failing to upload proof within timeout',
+      'SUSPENSION_REMOVED': 'User suspension automatically removed after duration expired',
+    };
+  }
+};
+
+// Error frequency tracker for multiple errors in short time
+const errorFrequency = new Map();
+const MULTIPLE_ERROR_THRESHOLD = 60000; // 60 seconds
+const ALERT_CHANNEL = '1461506733833846958';
+const ALERT_USER = '566300801476329472';
+
+// Suspension system constants
+const SUSPENSION_DURATION = 24 * 60 * 60 * 1000; // 1 day in milliseconds
+const SUSPENSION_ROLES = {
+  TRADE: '1462882529810841805',
+  GIVEAWAY: '1462882439075598618',
+  AUCTION: '1462882283735351519'
+};
+
+// Suspension tracking: userId -> { type, startTime, roleId }
+const userSuspensions = new Map();
+
+// Suspension embed tracking: userId -> messageId
+const suspensionEmbeds = new Map();
+
+// Function to get suspension restrictions text
+function getSuspensionRestrictions(type) {
+  const restrictions = {
+    TRADE: '• Cannot create new trades\n• Cannot make offers on other users\' trades\n• Cannot accept or decline own trades',
+    GIVEAWAY: '• Cannot create new giveaways\n• Cannot participate in other users\' giveaways',
+    AUCTION: '• Cannot create new auctions\n• Cannot bid on other users\' auctions'
+  };
+  return restrictions[type] || 'Unknown restrictions';
+}
+
+// Function to parse duration string (e.g., "1h", "30m", "2d") to milliseconds
+function parseDuration(durationStr) {
+  const regex = /^(\d+)([smhd])$/i;
+  const match = durationStr.match(regex);
+  if (!match) return SUSPENSION_DURATION; // Default to 24 hours
+
+  const value = parseInt(match[1]);
+  const unit = match[2].toLowerCase();
+
+  switch (unit) {
+    case 's': return value * 1000; // seconds
+    case 'm': return value * 60 * 1000; // minutes
+    case 'h': return value * 60 * 60 * 1000; // hours
+    case 'd': return value * 24 * 60 * 60 * 1000; // days
+    default: return SUSPENSION_DURATION;
+  }
+}
+
+// Function to format duration in milliseconds to readable string
+function formatDuration(ms) {
+  const seconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+
+  if (days > 0) return `${days} day${days > 1 ? 's' : ''}`;
+  if (hours > 0) return `${hours} hour${hours > 1 ? 's' : ''}`;
+  if (minutes > 0) return `${minutes} minute${minutes > 1 ? 's' : ''}`;
+  return `${seconds} second${seconds > 1 ? 's' : ''}`;
+}
+
+// Function to apply suspension to a user
+async function applySuspension(guild, userId, type, adminId = null, customDuration = null, customReason = null) {
+  try {
+    const member = await guild.members.fetch(userId).catch(() => null);
+    if (!member) return;
+
+    const roleId = SUSPENSION_ROLES[type];
+    if (!roleId) return;
+
+    // Check if already suspended
+    const existingSuspension = userSuspensions.get(userId);
+    let duration = customDuration ? parseDuration(customDuration) : SUSPENSION_DURATION;
+    let startTime = Date.now();
+
+    if (existingSuspension && existingSuspension.type === type) {
+      // Add to existing duration
+      const remainingTime = (existingSuspension.startTime + existingSuspension.duration) - Date.now();
+      duration = Math.max(0, remainingTime) + duration;
+      startTime = Date.now() - (existingSuspension.duration - remainingTime); // Adjust start time to keep end time correct
+    } else {
+      // Add role if not already suspended
+      await member.roles.add(roleId).catch(() => null);
+    }
+
+    // Record suspension
+    userSuspensions.set(userId, {
+      type,
+      startTime,
+      roleId,
+      duration
+    });
+
+    // Send suspension embed to alert channel
+    const alertChannel = guild.channels.cache.get(ALERT_CHANNEL);
+    if (alertChannel) {
+      const isAdminSuspension = adminId !== null;
+      const adminMember = adminId ? await guild.members.fetch(adminId).catch(() => null) : null;
+
+      const suspensionEmbed = new EmbedBuilder()
+        .setTitle(isAdminSuspension ? '🚫 User Suspension Applied (Admin)' : '🚫 User Suspension Applied')
+        .setColor(0xff0000)
+        .setDescription(isAdminSuspension
+          ? `A user has been suspended by an administrator.`
+          : `A user has been suspended for failing to upload proof within the timeout period.`)
+        .addFields(
+          { name: '👤 User', value: `<@${userId}> (${userId})`, inline: true },
+          { name: '🏷️ Type', value: type.charAt(0).toUpperCase() + type.slice(1), inline: true },
+          { name: '⏰ Duration', value: formatDuration(duration), inline: true },
+          { name: '🎭 Role Added', value: `<@&${roleId}>`, inline: true },
+          { name: '📅 Suspended At', value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: true },
+          { name: '⏳ Expires At', value: `<t:${Math.floor((startTime + duration) / 1000)}:F>`, inline: true },
+          { name: '📋 Reason', value: customReason || `Failed to upload proof image for ${type} within 9 minutes timeout`, inline: false },
+          { name: '🚫 Restrictions', value: getSuspensionRestrictions(type), inline: false }
+        )
+        .setThumbnail(member.user.displayAvatarURL({ dynamic: true, size: 256 }))
+        .setFooter({ text: 'Click "Remove Suspension" to manually remove (Admin Only)' })
+        .setTimestamp();
+
+      if (isAdminSuspension && adminMember) {
+        suspensionEmbed.addFields(
+          { name: '👮‍♂️ Suspended By', value: `${adminMember.user.tag} (${adminId})`, inline: true }
+        );
+      }
+
+      const removeButton = new ButtonBuilder()
+        .setCustomId(`remove_suspension_${userId}`)
+        .setLabel('Remove Suspension')
+        .setStyle(ButtonStyle.Danger);
+
+      const row = new ActionRowBuilder().addComponents(removeButton);
+
+      const message = await alertChannel.send({ embeds: [suspensionEmbed], components: [row] });
+      suspensionEmbeds.set(userId, message.id);
+    }
+
+    // Schedule role removal
+    setTimeout(async () => {
+      await removeSuspension(guild, userId);
+    }, duration);
+
+    botLogs.addLog('SUSPENSION_APPLIED', `User suspended for ${type}${adminId ? ` by admin ${adminId}` : ' proof timeout'}`, userId, { type, duration, adminId, reason: customReason });
+  } catch (e) {
+    console.error('Error applying suspension:', e);
+  }
+}
+
+// Function to remove suspension from a user
+async function removeSuspension(guild, userId) {
+  try {
+    const suspension = userSuspensions.get(userId);
+    if (!suspension) return;
+
+    const member = await guild.members.fetch(userId).catch(() => null);
+    if (member && suspension.roleId) {
+      await member.roles.remove(suspension.roleId).catch(() => null);
+    }
+
+    // Update suspension embed to green (expired)
+    const embedMessageId = suspensionEmbeds.get(userId);
+    if (embedMessageId) {
+      const alertChannel = guild.channels.cache.get(ALERT_CHANNEL);
+      if (alertChannel) {
+        try {
+          const message = await alertChannel.messages.fetch(embedMessageId);
+          if (message && message.embeds.length > 0) {
+            const updatedEmbed = EmbedBuilder.from(message.embeds[0])
+              .setTitle('✅ User Suspension Expired')
+              .setColor(0x00ff00)
+              .setDescription('This user\'s suspension has automatically expired.')
+              .addFields(
+                { name: '📅 Expired At', value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: true }
+              )
+              .setFooter({ text: 'Suspension automatically removed' });
+
+            await message.edit({ embeds: [updatedEmbed], components: [] });
+          }
+        } catch (e) {
+          // Message might have been deleted, ignore
+        }
+      }
+      suspensionEmbeds.delete(userId);
+    }
+
+    userSuspensions.delete(userId);
+    botLogs.addLog('SUSPENSION_REMOVED', `User suspension expired for ${suspension.type}`, userId, { type: suspension.type });
+  } catch (e) {
+    console.error('Error removing suspension:', e);
+  }
+}
+
+// Function to manually remove suspension (admin only)
+async function manualSuspensionRemoval(guild, userId, adminUserId, reason = null) {
+  try {
+    const suspension = userSuspensions.get(userId);
+    if (!suspension) return false;
+
+    const member = await guild.members.fetch(userId).catch(() => null);
+    if (member && suspension.roleId) {
+      await member.roles.remove(suspension.roleId).catch(() => null);
+    }
+
+    // Update suspension embed to green (manually removed)
+    const embedMessageId = suspensionEmbeds.get(userId);
+    if (embedMessageId) {
+      const alertChannel = guild.channels.cache.get(ALERT_CHANNEL);
+      if (alertChannel) {
+        try {
+          const message = await alertChannel.messages.fetch(embedMessageId);
+          if (message && message.embeds.length > 0) {
+            const adminMember = await guild.members.fetch(adminUserId).catch(() => null);
+            const updatedEmbed = EmbedBuilder.from(message.embeds[0])
+              .setTitle('✅ User Suspension Manually Removed')
+              .setColor(0x00ff00)
+              .setDescription('This user\'s suspension has been manually removed by an admin.')
+              .addFields(
+                { name: '👮‍♂️ Removed By', value: adminMember ? `${adminMember.user.tag} (${adminUserId})` : `<@${adminUserId}> (${adminUserId})`, inline: true },
+                { name: '📅 Removed At', value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: true }
+              )
+              .setFooter({ text: 'Suspension manually removed by admin' });
+
+            if (reason) {
+              updatedEmbed.addFields(
+                { name: '📋 Reason', value: reason, inline: false }
+              );
+            }
+
+            await message.edit({ embeds: [updatedEmbed], components: [] });
+          }
+        } catch (e) {
+          // Message might have been deleted, ignore
+        }
+      }
+      suspensionEmbeds.delete(userId);
+    }
+
+    userSuspensions.delete(userId);
+    botLogs.addLog('SUSPENSION_REMOVED', `User suspension manually removed by admin ${adminUserId} for ${suspension.type}${reason ? ` - ${reason}` : ''}`, userId, { type: suspension.type, adminId: adminUserId, reason });
+    return true;
+  } catch (e) {
+    console.error('Error manually removing suspension:', e);
+    return false;
+  }
+}
+
+// Function to check if user is suspended for a specific activity
+function checkSuspension(userId, activityType) {
+  const suspension = userSuspensions.get(userId);
+  if (!suspension) return null;
+
+  // Check if suspension applies to this activity
+  const applicableTypes = {
+    'trade': ['TRADE'],
+    'giveaway': ['GIVEAWAY'],
+    'auction': ['AUCTION']
+  };
+
+  if (!applicableTypes[activityType]?.includes(suspension.type)) return null;
+
+  const duration = suspension.duration || SUSPENSION_DURATION;
+  const timeRemaining = duration - (Date.now() - suspension.startTime);
+  if (timeRemaining <= 0) {
+    // Suspension expired, remove it
+    userSuspensions.delete(userId);
+    return null;
+  }
+
+  return {
+    type: suspension.type,
+    timeRemaining,
+    reason: `Proof timeout for ${suspension.type.toLowerCase()}`
+  };
+}
+
+// Function to remove suspension from a user
+async function removeSuspension(guild, userId) {
+  try {
+    const suspension = userSuspensions.get(userId);
+    if (!suspension) return;
+
+    const member = await guild.members.fetch(userId).catch(() => null);
+    if (member && suspension.roleId) {
+      await member.roles.remove(suspension.roleId).catch(() => null);
+    }
+
+    userSuspensions.delete(userId);
+    botLogs.addLog('SUSPENSION_REMOVED', `User suspension expired for ${suspension.type}`, userId, { type: suspension.type });
+  } catch (e) {
+    console.error('Error removing suspension:', e);
+  }
+}
+
+// Proof upload tracking system (for timeouts)
+const proofUploadTracking = new Map(); // messageId -> { type, hostId, guestId, reminderCount, reminderTimestamp }
+
+// Waiting for proof uploads
+const waitingForProofUploads = new Map(); // userId -> proofData
+
+const PROOF_UPLOAD_TIMEOUT = 540000; // 9 minutes (3 reminders every 3 minutes)
+const PROOF_REMINDER_INTERVAL = 180000; // 3 minutes between reminders
+const PROOF_MAX_REMINDERS = 3; // Maximum 3 reminders
+
+// Item count validation system
+const itemCountTracking = new Map(); // userId -> { offerTradeCount, inventoryCount, giveawayCount, tradeOfferCount, timestamp }
+
+// Function to track item count when added to menu
+function trackItemCount(userId, itemType, count) {
+  if (!itemCountTracking.has(userId)) {
+    itemCountTracking.set(userId, {});
+  }
+  
+  const userTracking = itemCountTracking.get(userId);
+  userTracking[itemType] = count;
+  userTracking.timestamp = Date.now();
+}
+
+// Function to validate item count when sent to embed
+async function validateItemCount(interaction, itemType, receivedCount, itemsList) {
+  const userTracking = itemCountTracking.get(interaction.user.id);
+  
+  if (!userTracking || userTracking[itemType] === undefined) {
+    return true; // First time, no validation needed
+  }
+  
+  const expectedCount = userTracking[itemType];
+  
+  if (receivedCount !== expectedCount) {
+    // CRITICAL ERROR: Item count mismatch
+    const errorEmbed = new EmbedBuilder()
+      .setColor('#FF0000')
+      .setTitle('🚨 CRITICAL ITEM COUNT MISMATCH')
+      .setDescription('**Possible manipulation attempt detected!**')
+      .addFields(
+        { name: '**USER**', value: `${interaction.user.tag} (${interaction.user.id})`, inline: false },
+        { name: '**ITEM TYPE**', value: `\`\`\`${itemType}\`\`\``, inline: true },
+        { name: '**EXPECTED COUNT**', value: `\`\`\`${expectedCount}\`\`\``, inline: true },
+        { name: '**RECEIVED COUNT**', value: `\`\`\`${receivedCount}\`\`\``, inline: true },
+        { name: '**DIFFERENCE**', value: `\`\`\`${receivedCount - expectedCount}\`\`\``, inline: true },
+        { name: '**ITEMS RECEIVED**', value: `\`\`\`${JSON.stringify(itemsList.slice(0, 10)).substring(0, 1024)}\`\`\``, inline: false },
+        { name: '**TIMESTAMP**', value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: false },
+        { name: '**GUILD ID**', value: `\`\`\`${interaction.guild.id}\`\`\``, inline: true }
+      );
+    
+    try {
+      const logChannel = await client.channels.fetch(ERROR_LOG_CHANNEL).catch(() => null);
+      if (logChannel) {
+        await logChannel.send({ 
+          content: `<@${ALERT_USER}> **SECURITY ALERT**`,
+          embeds: [errorEmbed] 
+        });
+      }
+    } catch (error) {
+      console.error('Failed to send item count validation error:', error);
+    }
+    
+    return false;
+  }
+  
+  return true;
+}
+
+// Function to log errors to Discord channel
 async function logError(interaction, errorCode, errorMessage, context = {}) {
   try {
     const channel = await client.channels.fetch(ERROR_LOG_CHANNEL).catch(() => null);
     if (!channel) return;
     
-    // Determine embed color based on error code
-    let embedColor = '#FF0000'; // Red by default
-    const code = parseInt(errorCode.replace('E', ''));
-    if (code <= 5) embedColor = '#FF6B6B'; // Permission errors - lighter red
-    else if (code <= 20) embedColor = '#FF8C00'; // Trade errors - orange
-    else if (code <= 35) embedColor = '#FFD700'; // Auction errors - gold
-    else if (code <= 50) embedColor = '#00CED1'; // Inventory errors - cyan
-    else if (code <= 65) embedColor = '#FF69B4'; // Giveaway errors - pink
-    else embedColor = '#696969'; // System errors - dark gray
-    
     const embed = new EmbedBuilder()
-      .setColor(embedColor)
-      .setTitle('⚠️ Error Report') //embed thumbnail
-      .setThumbnail('https://media.discordapp.net/attachments/1461506733833846958/1462815885806014465/75e6b309-4e2b-48c6-9046-23df37b6c836.gif?ex=696f90f4&is=696e3f74&hm=61a2feb6bb88c81231141bdd77d1be122b01aad030d4c0927904666015966d4e&=&width=1006&height=1006')
+      .setColor('#FF0000')
+      .setTitle('⚠️ Error Report')
       .addFields(
-        { name: 'User', value: `${interaction.user.tag} (${interaction.user.id})`, inline: true },
+        { name: 'User', value: `${userMention(interaction.user.id)} (${interaction.user.id})`, inline: true },
         { name: 'Error Code', value: `\`${errorCode}\``, inline: true },
-        { name: 'Category', value: getCategoryFromErrorCode(errorCode), inline: true },
-        { name: 'Description', value: ERROR_CODES[errorCode] || 'Unknown error', inline: false },
         { name: 'Message', value: errorMessage || 'No additional info', inline: false },
-        { name: 'Timestamp', value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: false }
+        { name: 'Data', value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: false }
       );
     
-    if (context.commandName) embed.addFields({ name: '📋 Command', value: `\`/${context.commandName}\``, inline: true });
-    if (context.channelId) embed.addFields({ name: '💬 Channel', value: `<#${context.channelId}>`, inline: true });
-    if (context.guildId) embed.addFields({ name: '🏢 Guild', value: `${context.guildId}`, inline: true });
-    if (Object.keys(context).length > 0 && !context.commandName && !context.channelId && !context.guildId) {
-      const contextStr = JSON.stringify(context).substring(0, 1024);
-      embed.addFields({ name: '📝 Context', value: contextStr, inline: false });
+    if (context.commandName) embed.addFields({ name: 'Command', value: context.commandName, inline: true });
+    if (context.channelId) embed.addFields({ name: 'Channel', value: `<#${context.channelId}>`, inline: true });
+    if (Object.keys(context).length > 0 && !context.commandName && !context.channelId) {
+      embed.addFields({ name: 'Context', value: JSON.stringify(context).substring(0, 1024), inline: false });
     }
     
     await channel.send({ embeds: [embed] });
+    
+    // Track error frequency for multiple occurrences
+    trackErrorFrequency(errorCode);
   } catch (error) {
     console.error('Failed to log error to Discord:', error);
   }
 }
 
-// Helper function to get category from error code
-function getCategoryFromErrorCode(errorCode) {
-  const code = parseInt(errorCode.replace('E', ''));
-  if (code <= 5) return '🔒 Permission';
-  else if (code <= 20) return '🔄 Trade';
-  else if (code <= 35) return '🎪 Auction';
-  else if (code <= 50) return '📦 Inventory';
-  else if (code <= 65) return '🎁 Giveaway';
-  else return '⚙️ System';
+// Function to track error frequency and alert on multiple occurrences
+async function trackErrorFrequency(errorCode) {
+  const now = Date.now();
+  
+  if (!errorFrequency.has(errorCode)) {
+    errorFrequency.set(errorCode, []);
+  }
+  
+  const errorList = errorFrequency.get(errorCode);
+  
+  // Remove timestamps older than 60 seconds
+  const recentErrors = errorList.filter(entry => now - entry.timestamp < MULTIPLE_ERROR_THRESHOLD);
+  recentErrors.push({ timestamp: now });
+  errorFrequency.set(errorCode, recentErrors);
+  
+  const errorCount = recentErrors.length;
+  
+  // Alert if 4-15 errors occurred in less than 60 seconds
+  if (errorCount >= 4 && errorCount <= 15) {
+    try {
+      const alertChannel = await client.channels.fetch(ALERT_CHANNEL).catch(() => null);
+      if (!alertChannel) return;
+      
+      const alertEmbed = new EmbedBuilder()
+        .setColor('#FF0000')
+        .setTitle('🚨 **MULTIPLE ERROR ALERT**')
+        .setThumbnail('https://media.discordapp.net/attachments/1461506733833846958/1462838334207557693/75e6b309-4e2b-48c6-9046-23df37b6c836.gif?ex=696fa5dd&is=696e545d&hm=00a95ab257adb2f266094f7f1eeae4f094c01d1f564402575b0897947601635b&=&width=1006&height=1006')
+        .addFields(
+          { name: '**ERROR CODE**', value: `\`\`\`${errorCode}\`\`\``, inline: true },
+          { name: '**OCCURRENCES**', value: `\`\`\`${errorCount}\`\`\``, inline: true },
+          { name: '**DESCRIPTION**', value: `\`\`\`${ERROR_CODES[errorCode] || 'UNKNOWN ERROR'}\`\`\``, inline: false }
+        )
+        .addFields(
+          { name: '**TIME WINDOW**', value: '**LAST 60 SECONDS**', inline: true },
+          { name: '**STATUS**', value: '**CRITICAL**', inline: true }
+        )
+        .addFields(
+          { name: '**DASHBOARD**', value: '[CLICK HERE TO VIEW](https://railway.com/project/cef07fa9-9987-475d-bced-8e18f568a7e4?environmentId=fde4a8a9-a67d-409f-be0f-d06e1818f2cb)', inline: false }
+        );
+      
+      await alertChannel.send({ 
+        content: `<@${ALERT_USER}>`,
+        embeds: [alertEmbed] 
+      });
+    } catch (error) {
+      console.error('Failed to send error frequency alert:', error);
+    }
+  }
 }
 
-// Function to send user-friendly error message with full logging
+// Function to send user-friendly error message
 async function sendErrorReply(interaction, errorCode, customMessage = null) {
   const message = customMessage || ERROR_CODES[errorCode] || 'An error occurred';
-  const formattedMessage = `**${message}** | Error (\`${errorCode}\`)`;
+  const formattedMessage = `${message} | Error (\`${errorCode}\`)`;
   
   try {
     if (interaction.deferred) {
@@ -219,12 +678,7 @@ async function sendErrorReply(interaction, errorCode, customMessage = null) {
     console.error('Failed to send error reply:', error);
   }
   
-  // Log error to Discord channel with context
-  await logError(interaction, errorCode, formattedMessage, {
-    commandName: interaction.commandName || 'unknown',
-    channelId: interaction.channelId,
-    guildId: interaction.guildId
-  });
+  await logError(interaction, errorCode, formattedMessage);
 }
 
 let redirectChannelId = config.defaultAuctionChannelId || null;
@@ -443,59 +897,378 @@ function formatItemsList(items) {
   }).join('\n');
 }
 
-// Helper function to paginate items for embeds (15 items per page)
-function paginateItems(items, itemsPerPage = 15) {
+// Helper function to paginate items for trade offer (max 10 items per page to avoid embed overflow)
+function paginateTradeItems(items, page = 1, itemsPerPage = 10) {
   if (!items || items.length === 0) {
-    return [{ items: [], text: 'None', page: 1, totalPages: 1 }];
+    return { items: [], page: 1, totalPages: 1, text: 'None' };
   }
-
-  const pages = [];
-  for (let i = 0; i < items.length; i += itemsPerPage) {
-    const pageItems = items.slice(i, i + itemsPerPage);
-    const text = pageItems.map(item => {
-      if (typeof item === 'object') {
-        if (item.name === '💎 Diamonds') {
-          const abbreviatedValue = formatBid(item.quantity);
-          return `💎 **Diamonds** (${abbreviatedValue} 💎)`;
-        }
-        const emoji = getItemEmoji(item.name) || '';
-        const formattedName = formatItemName(item.name);
-        return `${emoji} **${formattedName}** (x${item.quantity})`;
-      } else {
-        const emoji = getItemEmoji(item) || '';
-        const formattedName = formatItemName(item);
-        return `${emoji} **${formattedName}**`;
-      }
-    }).join('\n');
-
-    pages.push({
-      items: pageItems,
-      text: text,
-      page: pages.length + 1,
-      totalPages: Math.ceil(items.length / itemsPerPage)
-    });
-  }
-
-  return pages;
+  
+  const totalPages = Math.ceil(items.length / itemsPerPage);
+  const validPage = Math.max(1, Math.min(page, totalPages));
+  const start = (validPage - 1) * itemsPerPage;
+  const end = start + itemsPerPage;
+  const pageItems = items.slice(start, end);
+  
+  const text = pageItems.map(item => {
+    if (item.name === '💎 Diamonds') {
+      const abbreviatedValue = formatBid(item.quantity);
+      return `💎 **Diamonds** (${abbreviatedValue} 💎)`;
+    }
+    
+    const emoji = getItemEmoji(item.name) || '';
+    const formattedName = formatItemName(item.name);
+    return `${emoji} **${formattedName}** (x${item.quantity})`;
+  }).join('\n');
+  
+  return { 
+    items: pageItems, 
+    page: validPage, 
+    totalPages: totalPages,
+    text: text,
+    hasMultiplePages: totalPages > 1
+  };
 }
 
-// Helper function to paginate items for select menus (25 max per select menu)
-function paginateSelectMenuItems(items, itemsPerPage = 25) {
-  if (!items || items.length === 0) {
-    return [];
+// Function to detect and log when items are lost between selection and posting
+function validateItemsNotLost(interaction, operationType, expectedCount, actualItems) {
+  if (expectedCount > 0 && (!actualItems || actualItems.length === 0)) {
+    // Items were lost! Send critical log
+    const errorMessage = `🚨 **ITEM LOSS DETECTED** 🚨\n` +
+      `**User:** <@${interaction.user.id}> (${interaction.user.id})\n` +
+      `**Operation:** ${operationType}\n` +
+      `**Expected Items:** ${expectedCount}\n` +
+      `**Actual Items:** 0\n` +
+      `**Time:** <t:${Math.floor(Date.now() / 1000)}:F>\n` +
+      `**Guild:** ${interaction.guild?.name} (${interaction.guild?.id})\n` +
+      `**Channel:** ${interaction.channel?.name} (${interaction.channel?.id})\n` +
+      `\n**Possible Cause:** Items array was cleared or deleted before posting embed`;
+    
+    // Log to console with red color indicator
+    console.error(`\n❌ CRITICAL: Item Loss Detected for user ${interaction.user.id} in ${operationType}\n`);
+    console.error(`Expected: ${expectedCount}, Got: 0\n`);
+    
+    // Send to error log channel
+    const errorLogChannelId = '1462804742366298112';
+    const client = interaction.client;
+    if (client && errorLogChannelId) {
+      const errorLogChannel = client.channels.cache.get(errorLogChannelId);
+      if (errorLogChannel) {
+        const embed = new EmbedBuilder()
+          .setColor('#FF0000')
+          .setTitle('🚨 Critical: Item Loss Detected')
+          .setDescription(errorMessage)
+          .setFooter({ text: `Timestamp: ${Date.now()}` });
+        
+        errorLogChannel.send({ embeds: [embed] }).catch(err => {
+          console.error('Failed to send item loss log:', err);
+        });
+      }
+    }
+    
+    return false;
   }
+  return true;
+}
 
-  const pages = [];
-  for (let i = 0; i < items.length; i += itemsPerPage) {
-    const pageItems = items.slice(i, i + itemsPerPage);
-    pages.push({
-      items: pageItems,
-      page: pages.length + 1,
-      totalPages: Math.ceil(items.length / itemsPerPage)
+// Helper function to add fields safely to embed (prevents invalid fields)
+// Tracking for addFieldSafely errors
+const addFieldSafelyErrors = [];
+const MAX_ERROR_LOG_SIZE = 100;
+
+// Helper function to safely add fields to embed with comprehensive error logging
+function addFieldSafely(embed, name, value, inline = false) {
+  const timestamp = Date.now();
+  const errorContext = {
+    timestamp: timestamp,
+    date: new Date(timestamp).toISOString(),
+    name: name,
+    value: value,
+    inline: inline,
+    errors: []
+  };
+
+  try {
+    // Validate field name
+    if (!name || name.toString().trim() === '') {
+      const errorMsg = 'Field name is empty or invalid';
+      errorContext.errors.push({
+        type: 'INVALID_NAME',
+        message: errorMsg,
+        value: name
+      });
+      console.warn(`[addFieldSafely] ${errorMsg}`, { name, value });
+      return false;
+    }
+
+    // Validate field value
+    let sanitizedValue = value;
+    if (!value || value.toString().trim() === '') {
+      sanitizedValue = 'None';
+      errorContext.errors.push({
+        type: 'EMPTY_VALUE',
+        message: 'Field value was empty, using default "None"',
+        originalValue: value
+      });
+    }
+
+    // Convert to string and validate type
+    try {
+      sanitizedValue = sanitizedValue.toString();
+    } catch (typeError) {
+      errorContext.errors.push({
+        type: 'TYPE_CONVERSION_ERROR',
+        message: `Failed to convert value to string: ${typeError.message}`,
+        originalValue: value,
+        error: typeError.message
+      });
+      console.error(`[addFieldSafely] Type conversion error`, { name, value, error: typeError.message });
+      return false;
+    }
+
+    // Truncate to Discord limits
+    const originalNameLength = name.toString().length;
+    const originalValueLength = sanitizedValue.length;
+    
+    name = name.toString().substring(0, 256);
+    sanitizedValue = sanitizedValue.substring(0, 1024);
+
+    if (originalNameLength > 256 || originalValueLength > 1024) {
+      errorContext.errors.push({
+        type: 'TRUNCATED',
+        message: 'Field was truncated to Discord limits',
+        originalNameLength: originalNameLength,
+        truncatedNameLength: name.length,
+        originalValueLength: originalValueLength,
+        truncatedValueLength: sanitizedValue.length
+      });
+      console.warn(`[addFieldSafely] Field truncated to Discord limits`, {
+        name: name.substring(0, 50) + '...',
+        originalNameLen: originalNameLength,
+        originalValueLen: originalValueLength
+      });
+    }
+
+    // Try to add field
+    try {
+      embed.addFields({ name, value: sanitizedValue, inline });
+      
+      // Log if there were warnings but success
+      if (errorContext.errors.length > 0) {
+        console.log(`[addFieldSafely] Field added with warnings:`, {
+          name: name.substring(0, 50),
+          warnings: errorContext.errors.length
+        });
+      }
+      
+      return true;
+    } catch (embedError) {
+      errorContext.errors.push({
+        type: 'EMBED_ADD_FAILED',
+        message: `EmbedBuilder.addFields() failed: ${embedError.message}`,
+        error: embedError.message,
+        stack: embedError.stack
+      });
+      
+      // Log to console with full context
+      console.error(`[addFieldSafely] CRITICAL: Failed to add field to embed`, {
+        name: name.substring(0, 100),
+        value: sanitizedValue.substring(0, 100),
+        inline: inline,
+        error: embedError.message,
+        errorCode: embedError.code
+      });
+      
+      // Add to error tracking
+      addFieldSafelyErrors.push(errorContext);
+      if (addFieldSafelyErrors.length > MAX_ERROR_LOG_SIZE) {
+        addFieldSafelyErrors.shift();
+      }
+      
+      return false;
+    }
+  } catch (unexpectedError) {
+    errorContext.errors.push({
+      type: 'UNEXPECTED_ERROR',
+      message: `Unexpected error in addFieldSafely: ${unexpectedError.message}`,
+      error: unexpectedError.message,
+      stack: unexpectedError.stack
     });
+    
+    console.error(`[addFieldSafely] UNEXPECTED ERROR`, {
+      name: String(name).substring(0, 50),
+      error: unexpectedError.message,
+      stack: unexpectedError.stack
+    });
+    
+    addFieldSafelyErrors.push(errorContext);
+    if (addFieldSafelyErrors.length > MAX_ERROR_LOG_SIZE) {
+      addFieldSafelyErrors.shift();
+    }
+    
+    return false;
   }
+}
 
-  return pages;
+// Function to get addFieldSafely error logs
+function getAddFieldErrors() {
+  return {
+    total: addFieldSafelyErrors.length,
+    errors: addFieldSafelyErrors,
+    summary: {
+      invalidNames: addFieldSafelyErrors.filter(e => e.errors.some(err => err.type === 'INVALID_NAME')).length,
+      emptyValues: addFieldSafelyErrors.filter(e => e.errors.some(err => err.type === 'EMPTY_VALUE')).length,
+      typeErrors: addFieldSafelyErrors.filter(e => e.errors.some(err => err.type === 'TYPE_CONVERSION_ERROR')).length,
+      truncated: addFieldSafelyErrors.filter(e => e.errors.some(err => err.type === 'TRUNCATED')).length,
+      embedFailed: addFieldSafelyErrors.filter(e => e.errors.some(err => err.type === 'EMBED_ADD_FAILED')).length,
+      unexpected: addFieldSafelyErrors.filter(e => e.errors.some(err => err.type === 'UNEXPECTED_ERROR')).length
+    }
+  };
+}
+
+// Function to send addFieldSafely errors to Discord log channel
+async function logAddFieldSafelyErrors(client) {
+  try {
+    const errorLog = getAddFieldErrors();
+    if (errorLog.total === 0) return;
+
+    const logChannel = await client.channels.fetch(ERROR_LOG_CHANNEL).catch(() => null);
+    if (!logChannel) return;
+
+    const embed = new EmbedBuilder()
+      .setColor('#FF6B6B')
+      .setTitle('⚠️ addFieldSafely Error Report')
+      .setDescription(`Total Errors: **${errorLog.total}**`)
+      .addFields(
+        { name: 'Invalid Names', value: `${errorLog.summary.invalidNames}`, inline: true },
+        { name: 'Empty Values', value: `${errorLog.summary.emptyValues}`, inline: true },
+        { name: 'Type Errors', value: `${errorLog.summary.typeErrors}`, inline: true },
+        { name: 'Truncated Fields', value: `${errorLog.summary.truncated}`, inline: true },
+        { name: 'Embed Add Failed', value: `${errorLog.summary.embedFailed}`, inline: true },
+        { name: 'Unexpected Errors', value: `${errorLog.summary.unexpected}`, inline: true }
+      )
+      .setFooter({ text: `Last Error: ${new Date(errorLog.errors[errorLog.errors.length - 1]?.timestamp).toISOString()}` });
+
+    // Add recent error details
+    const recentErrors = errorLog.errors.slice(-5);
+    if (recentErrors.length > 0) {
+      const errorDetails = recentErrors.map((err, idx) => 
+        `**Error ${idx + 1}**: ${err.errors.map(e => e.type).join(', ')}\n` +
+        `Name: \`${err.name.substring(0, 50)}\`\n` +
+        `Time: <t:${Math.floor(err.timestamp / 1000)}:F>`
+      ).join('\n\n');
+      
+      embed.addFields({ name: 'Recent Errors (Last 5)', value: errorDetails.substring(0, 1024), inline: false });
+    }
+
+    await logChannel.send({ embeds: [embed] });
+  } catch (error) {
+    console.error('[logAddFieldSafelyErrors] Failed to log errors:', error.message);
+  }
+}
+
+// Helper function to create standard embed footer and thumbnail
+function getStandardEmbedFooter() {
+  return {
+    text: 'Version 1.1.3 | Made By Atlas'
+  };
+}
+
+function getStandardThumbnail() {
+  return 'https://media.discordapp.net/attachments/1461378333278470259/1461514275976773674/B2087062-9645-47D0-8918-A19815D8E6D8.png?ex=696ad4bd&is=6969833d&hc=0e79de3b74f088fb71edf1e20ae0df9f&ct=1704729600';
+}
+
+// Helper function to check if user has admin role
+function hasAdminRole(member) {
+  const adminRoles = ['1461505505401896972', '1461481291118678087', '1461484563183435817'];
+  return member.roles.cache.some(role => adminRoles.includes(role.id));
+}
+
+// Helper function to create category select menu
+function createCategorySelectMenu(customId, placeholder = 'Select item category') {
+  return new StringSelectMenuBuilder()
+    .setCustomId(customId)
+    .setPlaceholder(placeholder)
+    .addOptions([
+      { label: 'Diamonds', value: 'diamonds', emoji: '💎' },
+      { label: 'Huges', value: 'huges', emoji: '🔥' },
+      { label: 'Exclusives', value: 'exclusives', emoji: '✨' },
+      { label: 'Eggs', value: 'eggs', emoji: '🥚' },
+      { label: 'Gifts', value: 'gifts', emoji: '🎁' }
+    ]);
+}
+
+// Helper function to create huge subcategory select menu
+function createHugeSubcategorySelectMenu(customId) {
+  return new StringSelectMenuBuilder()
+    .setCustomId(customId)
+    .setPlaceholder('Select a Huge subcategory')
+    .addOptions(Object.keys(itemCategories.huges).map(sub => ({
+      label: sub,
+      value: sub
+    })));
+}
+
+// Helper function to create item select menu
+function createItemSelectMenu(customId, items, placeholder = 'Select items', maxValues = 25) {
+  return new StringSelectMenuBuilder()
+    .setCustomId(customId)
+    .setPlaceholder(placeholder)
+    .setMaxValues(Math.min(items.length, maxValues))
+    .addOptions(items.map(item => ({ 
+      label: formatItemName(item), 
+      value: item,
+      emoji: getItemEmoji(item)
+    })));
+}
+
+// Helper function to create diamonds modal
+function createDiamondsModal(customId, title = 'Add Diamonds') {
+  const modal = new ModalBuilder()
+    .setCustomId(customId)
+    .setTitle(title);
+
+  const diamondsInput = new TextInputBuilder()
+    .setCustomId(`${customId}_diamonds_input`)
+    .setLabel('Amount of Diamonds')
+    .setStyle(TextInputStyle.Short)
+    .setPlaceholder('e.g., 5000, 10K, 1M')
+    .setRequired(true);
+
+  const row = new ActionRowBuilder().addComponents(diamondsInput);
+  modal.addComponents(row);
+  
+  return modal;
+}
+
+// Helper function to create quantity selection modal
+function createQuantityModal(customId, itemCount) {
+  const modal = new ModalBuilder()
+    .setCustomId(customId)
+    .setTitle('Select Quantities');
+
+  const quantitiesInput = new TextInputBuilder()
+    .setCustomId('quantities')
+    .setLabel(`Quantities for ${itemCount} items (comma separated)`)
+    .setStyle(TextInputStyle.Paragraph)
+    .setPlaceholder('1,1,1... (one per item)')
+    .setRequired(true);
+
+  const row = new ActionRowBuilder().addComponents(quantitiesInput);
+  modal.addComponents(row);
+  
+  return modal;
+}
+
+// Helper function to create continue selection menu
+function createContinueSelectMenu(customId, confirmLabel = '✅ Confirm') {
+  return new StringSelectMenuBuilder()
+    .setCustomId(customId)
+    .setPlaceholder('What would you like to do?')
+    .addOptions([
+      { label: confirmLabel, value: 'confirm' },
+      { label: '➕ Add Another Category', value: 'add_category' },
+      { label: '❌ Remove Items', value: 'remove_items' }
+    ]);
 }
 
 // Save data every 5 minutes and reload without losing active embeds
@@ -614,6 +1387,14 @@ async function saveData() {
     const userGiveawayCountData = JSON.stringify(Array.from(userGiveawayCount.entries()));
     redisClient.set('USERGIVEAWAYCOUNTSAVES', userGiveawayCountData);
 
+    // Save suspensions
+    const suspensionsData = JSON.stringify(Array.from(userSuspensions.entries()));
+    redisClient.set('SUSPENSIONSAVES', suspensionsData);
+
+    // Save suspension embeds
+    const suspensionEmbedsData = JSON.stringify(Array.from(suspensionEmbeds.entries()));
+    redisClient.set('SUSPENSIONEMBEDSSAVES', suspensionEmbedsData);
+
     // Save redirects
     const redirectsData = JSON.stringify({
       redirectChannelId,
@@ -644,6 +1425,7 @@ async function saveData() {
             { name: '🎁 Finished Giveaways', value: `${finishedGiveaways.size} finished giveaways saved`, inline: true },
             { name: '👥 Trade Counters', value: `${userTradeCount.size} users with trade counters`, inline: true },
             { name: '🎊 Giveaway Counters', value: `${userGiveawayCount.size} users with giveaway counters`, inline: true },
+            { name: '⚠️ Suspensions', value: `${userSuspensions.size} active suspensions saved`, inline: true },
             { name: '🔧 Settings', value: `Redirects saved`, inline: true }
           )
           .setFooter({ text: 'Next automatic save in 5 minutes' });
@@ -739,6 +1521,24 @@ async function loadData() {
       if (parsed.redirectTradeChannelId) redirectTradeChannelId = parsed.redirectTradeChannelId;
       if (parsed.redirectInventoryChannelId) redirectInventoryChannelId = parsed.redirectInventoryChannelId;
       if (parsed.redirectGiveawayChannelId) redirectGiveawayChannelId = parsed.redirectGiveawayChannelId;
+    }
+
+    // Load suspensions
+    const suspensionsData = await redisClient.get('SUSPENSIONSAVES');
+    if (suspensionsData) {
+      const parsed = JSON.parse(suspensionsData);
+      parsed.forEach(([key, value]) => {
+        userSuspensions.set(key, value);
+      });
+    }
+
+    // Load suspension embeds
+    const suspensionEmbedsData = await redisClient.get('SUSPENSIONEMBEDSSAVES');
+    if (suspensionEmbedsData) {
+      const parsed = JSON.parse(suspensionEmbedsData);
+      parsed.forEach(([key, value]) => {
+        suspensionEmbeds.set(key, value);
+      });
     }
 
     console.log('Data loaded from Redis successfully');
@@ -888,12 +1688,82 @@ client.once('clientReady', async () => {
       ]
     },
     {
+      name: 'addfieldserrors',
+      description: 'View addFieldSafely error logs (admin only)'
+    },
+    {
       name: 'botcmds',
       description: 'View all available bot commands'
     },
     {
-      name: 'logsdesc',
-      description: 'View all error codes with their descriptions (admin only)'
+      name: 'botlogs',
+      description: 'View bot logs with pagination (admin only)',
+      options: [
+        {
+          name: 'type',
+          type: ApplicationCommandOptionType.String,
+          description: 'Filter logs by type (PROOF_SUCCESS, PROOF_ERROR, PROOF_TIMEOUT, PROOF_REMINDER, etc.)',
+          required: false
+        }
+      ]
+    },
+    {
+      name: 'suspend',
+      description: 'Suspend a user from a specific category (admin only)',
+      options: [
+        {
+          name: 'user',
+          type: ApplicationCommandOptionType.User,
+          description: 'The user to suspend',
+          required: true
+        },
+        {
+          name: 'category',
+          type: ApplicationCommandOptionType.String,
+          description: 'The category to suspend from',
+          required: true,
+          choices: [
+            { name: 'Trade', value: 'TRADE' },
+            { name: 'Giveaway', value: 'GIVEAWAY' },
+            { name: 'Auction', value: 'AUCTION' }
+          ]
+        },
+        {
+          name: 'time',
+          type: ApplicationCommandOptionType.String,
+          description: 'Suspension duration (e.g., 1h, 30m, 2d)',
+          required: true
+        }
+      ]
+    },
+    {
+      name: 'unsuspend',
+      description: 'Remove suspension from a user (admin only)',
+      options: [
+        {
+          name: 'user',
+          type: ApplicationCommandOptionType.User,
+          description: 'The user to unsuspend',
+          required: true
+        },
+        {
+          name: 'category',
+          type: ApplicationCommandOptionType.String,
+          description: 'The category to unsuspend from',
+          required: true,
+          choices: [
+            { name: 'Trade', value: 'TRADE' },
+            { name: 'Giveaway', value: 'GIVEAWAY' },
+            { name: 'Auction', value: 'AUCTION' }
+          ]
+        },
+        {
+          name: 'reason',
+          type: ApplicationCommandOptionType.String,
+          description: 'Reason for unsuspension',
+          required: true
+        }
+      ]
     }
   ];
 
@@ -903,109 +1773,368 @@ client.once('clientReady', async () => {
 client.on('messageCreate', async (message) => {
   if (message.author.bot) return;
 
-  // Check if user is waiting to upload proof
-  if (message.author.waitingForProof && message.attachments.size > 0) {
-    const proofData = message.author.waitingForProof;
-    const attachment = message.attachments.first();
+  // Debug logging for all messages
+  if (message.attachments.size > 0) {
+    console.log('[DEBUG] Message with attachment received:', {
+      author: message.author.id,
+      channelId: message.channel.id,
+      channelName: message.channel.name,
+      attachments: message.attachments.size,
+      inProofWaiting: !!waitingForProofUploads.get(message.author.id)
+    });
+  }
 
+  // Check if user is waiting to upload proof (regular or admin)
+  const userProofData = waitingForProofUploads.get(message.author.id);
+  const hasAttachmentOrEmbed = message.attachments.size > 0 || (message.embeds.length > 0 && message.embeds[0]?.image);
+  
+  // Also check if message is in a private trade channel with image attachment
+  const isTradePrivateChannel = message.channel?.name?.startsWith('trade-') && hasAttachmentOrEmbed;
+  
+  if ((userProofData || isTradePrivateChannel) && hasAttachmentOrEmbed) {
+    console.log('Proof upload detected for user:', message.author.id, 'attachments:', message.attachments.size, 'embeds:', message.embeds.length, 'proofData:', userProofData, 'isPrivateChannel:', isTradePrivateChannel);
+    console.log('Channel name:', message.channel?.name, 'Channel ID:', message.channel?.id);
+    console.log('[DEBUG] Starting proof upload processing...');
+    let proofData = userProofData;
+    console.log('[DEBUG] Initial proofData:', proofData);
+    
+    // If no proofData but in private channel, construct it from channel info
+    if (!proofData && isTradePrivateChannel) {
+      const channelParts = message.channel.name.split('-');
+      console.log('Parsing private channel name:', message.channel.name, 'Parts:', channelParts);
+      
+      if (channelParts.length === 3 && channelParts[0] === 'trade') {
+        const hostId = channelParts[1];
+        const guestId = channelParts[2];
+        console.log('Looking for trade with hostId:', hostId, 'guestId:', guestId);
+        
+        // Find the trade in the trades map
+        let foundTrade = null;
+        console.log('[DEBUG] Total trades in map:', trades.size);
+        for (const [msgId, trade] of trades.entries()) {
+          console.log('[DEBUG] Checking trade:', msgId, 'host type:', typeof trade.host, 'host.id:', trade.host?.id, 'hostId looking for:', hostId);
+          console.log('[DEBUG] Trade object keys:', Object.keys(trade).slice(0, 5), '...');
+          const tradeHostId = String(trade.host?.id);
+          const tradeGuestId = String(trade.acceptedUser?.id);
+          console.log('[DEBUG] Comparing:', tradeHostId, '===', hostId, '?', tradeHostId === hostId, 'AND', tradeGuestId, '===', guestId, '?', tradeGuestId === guestId);
+          if (tradeHostId === hostId && tradeGuestId === guestId) {
+            foundTrade = { messageId: msgId, trade: trade };
+            console.log('[DEBUG] FOUND MATCHING TRADE!', msgId);
+            break;
+          }
+        }
+        
+        if (foundTrade) {
+          proofData = {
+            type: 'trade',
+            tradeMessageId: foundTrade.messageId,
+            hostId: hostId,
+            guestId: guestId,
+            channelId: foundTrade.trade.channelId,
+            privateChannelId: message.channel.id,
+            description: '📦Trade Completed'
+          };
+          console.log('[DEBUG] ✅ SUCCESSFULLY constructed proofData from private channel:', proofData);
+        } else {
+          console.log('[DEBUG] ❌ No trade found matching this private channel');
+          console.log('[DEBUG] Looking for hostId:', hostId, 'guestId:', guestId);
+          console.log('[DEBUG] Channel name was:', message.channel.name);
+        }
+      } else {
+        console.log('Channel name format invalid for trade detection');
+      }
+    }
+    
+    if (!proofData) {
+      console.log('No proof data found and not in valid trade private channel');
+      return;
+    }
+    
+    let attachment = message.attachments.first();
+    let imageUrl = attachment?.url;
+    
+    console.log('[DEBUG] Attachment:', attachment?.name, 'URL:', imageUrl?.substring(0, 50));
+    
+    if (!attachment && message.embeds.length > 0 && message.embeds[0].image) {
+      imageUrl = message.embeds[0].image.url;
+      console.log('[DEBUG] Using embed image:', imageUrl?.substring(0, 50));
+    }
+    
+    if (!imageUrl) {
+      console.log('[DEBUG] No image URL found, returning error');
+      return message.reply({ content: '⚠️ No image found. Please attach or embed an image.' });
+    }
+
+    console.log('[DEBUG] Image URL found, verifying format...');
+    
     // Verify it's an image
-    if (!attachment.contentType || !attachment.contentType.startsWith('image/')) {
-      return message.reply('❌ Please upload an image file.');
+    const isImage = !attachment ? true : (attachment.contentType && attachment.contentType.startsWith('image/') || 
+                   attachment.name && (attachment.name.toLowerCase().endsWith('.png') || attachment.name.toLowerCase().endsWith('.jpg') || attachment.name.toLowerCase().endsWith('.jpeg') || attachment.name.toLowerCase().endsWith('.gif')));
+    if (!isImage) {
+      const errorType = proofData?.type || 'unknown';
+      botLogs.addLog('PROOF_ERROR', 'Invalid file type for proof upload', message.author.id, { type: errorType, contentType: attachment?.contentType, name: attachment?.name });
+      return message.reply({ content: `⚠️ Please upload a valid image file (PNG, JPG, JPEG, GIF). | Error (E56)` });
     }
 
     const guild = message.guild;
     let proofChannel = null;
     let proofEmbed = null;
+    let originalMessageId = null;
+    const isAdminUpload = !!message.author.waitingForAdminProof;
 
     if (proofData.type === 'trade') {
       const tradeProofChannelId = '1461849745566990487';
       proofChannel = guild.channels.cache.get(tradeProofChannelId);
 
       if (!proofChannel) {
-        delete message.author.waitingForProof;
-        return message.reply('❌ Trade proof channel not found.');
+        waitingForProofUploads.delete(message.author.id);
+        botLogs.addLog('PROOF_ERROR', 'Trade proof channel not found', message.author.id);
+        return message.reply({ content: `⚠️ ${ERROR_CODES['E57']} | Error (E57)` });
       }
 
       // Get trade info
       const trade = trades.get(proofData.tradeMessageId);
       if (!trade) {
-        delete message.author.waitingForProof;
-        return message.reply('❌ Trade no longer exists.');
+        waitingForProofUploads.delete(message.author.id);
+        botLogs.addLog('PROOF_ERROR', 'Trade not found', message.author.id, { tradeId: proofData.tradeMessageId });
+        return message.reply({ content: `⚠️ ${ERROR_CODES['E58']} | Error (E58)` });
       }
+
+      originalMessageId = proofData.tradeMessageId;
 
       // Create proof embed
       proofEmbed = new EmbedBuilder()
         .setTitle('🔄 Trade Proof')
-        .setDescription(`**Trade ID:** ${proofData.tradeMessageId}\n**Host:** <@${trade.host.id}>\n**Guest:** <@${trade.acceptedUser.id}>\n\n**Note:** ${proofData.description || 'No description provided'}`)
+        .setDescription(`**Trade ID:** ${proofData.tradeMessageId}\n**Host:** <@${trade.host.id}>\n**Guest:** <@${trade.acceptedUser.id}>\n\n**Note:** ${proofData.description || '📦Trade Completed'}${isAdminUpload ? '\n\n**Uploaded by Admin:** ' + message.author.username : ''}`)
         .setColor(0x0099ff)
-        .setImage(attachment.url)
-        .setFooter({ text: `Submitted by <@${message.author.id}>` })
+        .setImage(imageUrl)
+        .setFooter({ text: `Submitted by ${message.author.displayName}` })
         .setTimestamp();
     } else if (proofData.type === 'auction') {
       const auctionProofChannelId = '1461849894615646309';
       proofChannel = guild.channels.cache.get(auctionProofChannelId);
 
       if (!proofChannel) {
-        delete message.author.waitingForProof;
-        return message.reply('❌ Auction proof channel not found.');
+        waitingForProofUploads.delete(message.author.id);
+        botLogs.addLog('PROOF_ERROR', 'Auction proof channel not found', message.author.id);
+        return message.reply({ content: `⚠️ ${ERROR_CODES['E59']} | Error (E59)` });
       }
 
       // Get auction info from finishedAuctions Map
       const auctionData = finishedAuctions.get(proofData.auctionProofMessageId);
       
       if (!auctionData) {
-        delete message.author.waitingForProof;
-        return message.reply('❌ Auction no longer exists.');
+        waitingForProofUploads.delete(message.author.id);
+        botLogs.addLog('PROOF_ERROR', 'Auction not found', message.author.id, { auctionId: proofData.auctionProofMessageId });
+        return message.reply({ content: `⚠️ ${ERROR_CODES['E60']} | Error (E60)` });
       }
+
+      originalMessageId = proofData.auctionProofMessageId;
 
       // Create proof embed for auction
       proofEmbed = new EmbedBuilder()
         .setTitle('🎪 Auction Proof')
-        .setDescription(`**Title:** ${auctionData.title}\n**Host:** ${auctionData.host}\n**Winner:** ${auctionData.winner}\n**Bid:** ${formatBid(auctionData.diamonds)} 💎\n\n**Note:** ${proofData.description || 'No description provided'}`)
+        .setDescription(`**Title:** ${auctionData.title}\n**Host:** ${auctionData.host}\n**Winner:** ${auctionData.winner}\n**Bid:** ${formatBid(auctionData.diamonds)} 💎\n\n**Note:** ${proofData.description || '📦Trade Completed'}${isAdminUpload ? '\n\n**Uploaded by Admin:** ' + message.author.username : ''}`)
         .setColor(0x00ff00)
-        .setImage(attachment.url)
-        .setFooter({ text: `Submitted by ${message.author.username}` })
+        .setImage(imageUrl)
+        .setFooter({ text: `Submitted by ${message.author.displayName}` })
         .setTimestamp();
     } else if (proofData.type === 'giveaway') {
       const giveawayProofChannelId = '1462197194646880368';
       proofChannel = guild.channels.cache.get(giveawayProofChannelId);
 
       if (!proofChannel) {
-        delete message.author.waitingForProof;
-        return message.reply('❌ Giveaway proof channel not found.');
+        waitingForProofUploads.delete(message.author.id);
+        botLogs.addLog('PROOF_ERROR', 'Giveaway proof channel not found', message.author.id);
+        return message.reply({ content: `⚠️ ${ERROR_CODES['E61']} | Error (E61)` });
       }
 
       // Get giveaway info from finishedGiveaways Map
       const giveawayData = finishedGiveaways.get(proofData.giveawayProofMessageId);
       
       if (!giveawayData) {
-        delete message.author.waitingForProof;
-        return message.reply('❌ Giveaway no longer exists.');
+        waitingForProofUploads.delete(message.author.id);
+        botLogs.addLog('PROOF_ERROR', 'Giveaway not found', message.author.id, { giveawayId: proofData.giveawayProofMessageId });
+        return message.reply({ content: `⚠️ ${ERROR_CODES['E62']} | Error (E62)` });
       }
+
+      originalMessageId = proofData.giveawayProofMessageId;
 
       // Create proof embed for giveaway
       proofEmbed = new EmbedBuilder()
         .setTitle('🎁 Giveaway Proof')
-        .setDescription(`**Host:** ${giveawayData.host}\n**Winner:** ${giveawayData.winner}\n\n**Note:** ${proofData.description || 'No description provided'}`)
+        .setDescription(`**Host:** ${giveawayData.host}\n**Winner:** ${giveawayData.winner}\n\n**Note:** ${proofData.description || '📦Trade Completed'}`)
         .setColor(0xFF1493)
-        .setImage(attachment.url)
-        .setFooter({ text: `Submitted by ${message.author.username}` })
+        .setImage(imageUrl)
+        .setFooter({ text: `Submitted by ${message.author.displayName}` })
         .setTimestamp();
     } else {
-      delete message.author.waitingForProof;
-      return message.reply('❌ Invalid proof type.');
+      waitingForProofUploads.delete(message.author.id);
+      botLogs.addLog('PROOF_ERROR', 'Invalid proof type', message.author.id, { type: proofData.type });
+      return message.reply({ content: `⚠️ ${ERROR_CODES['E63']} | Error (E63)` });
     }
 
-    // Send to proof channel
-    await proofChannel.send({ embeds: [proofEmbed] });
+    // Send to proof channel with image attachment
+    console.log('[DEBUG] Attempting to send proof to channel...');
+    console.log('[DEBUG] Proof channel:', proofChannel?.name, 'ID:', proofChannel?.id);
     
-    message.reply('✅ Proof image has been submitted and recorded!');
-    delete message.author.waitingForProof;
-    return;
-  }
+    try {
+      console.log('[DEBUG] Creating proof embed with image...');
+      const finalProofEmbed = proofEmbed.setImage(imageUrl);
+      console.log('[DEBUG] ✅ Embed created with image URL');
+      
+      // Send directly with Discord's hosted image (no download needed)
+      console.log('[DEBUG] Sending proof message with Discord image URL...');
+      const proofMessage = await proofChannel.send({ 
+        embeds: [finalProofEmbed]
+      });
+      
+      console.log('[DEBUG] ✅ Proof message sent with Discord URL, ID:', proofMessage?.id);
+      
+      // Try to download and save image to Redis in the background (don't block on this)
+      console.log('[DEBUG] Attempting to download and save image to Redis...');
+      setImmediate(async () => {
+        try {
+          console.log('[DEBUG] Fetching image from URL:', imageUrl?.substring(0, 50));
+          const imageResponse = await fetch(imageUrl);
+          if (!imageResponse.ok) {
+            console.warn('[WARN] Failed to fetch image for Redis backup:', imageResponse.status);
+            return;
+          }
+          
+          console.log('[DEBUG] Image content-type:', imageResponse.headers.get('content-type'));
+          console.log('[DEBUG] Converting image to buffer with timeout...');
+          
+          // Create timeout for arrayBuffer - 20 seconds
+          const arrayBufferPromise = imageResponse.arrayBuffer();
+          const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('arrayBuffer timeout after 20 seconds')), 20000)
+          );
+          
+          let arrayBuffer;
+          try {
+            arrayBuffer = await Promise.race([arrayBufferPromise, timeoutPromise]);
+            console.log('[DEBUG] arrayBuffer conversion completed');
+          } catch (timeoutError) {
+            console.warn('[WARN] arrayBuffer conversion timed out, skipping Redis save:', timeoutError.message);
+            return;
+          }
+          
+          const imageBuffer = Buffer.from(arrayBuffer);
+          console.log('[DEBUG] ✅ Image buffer created, size:', imageBuffer.length, 'bytes');
+          
+          // Save to Redis
+          console.log('[DEBUG] Saving image to Redis...');
+          let fileName = 'proof.png';
+          if (attachment && attachment.name) {
+            fileName = attachment.name;
+          }
+          const imageId = await saveProofImageToRedis(imageBuffer, fileName);
+          console.log('[DEBUG] ✅ Image saved to Redis with ID:', imageId);
+          
+          // Store the imageId in the tracking for later reference
+          const tracking = proofUploadTracking.get(originalMessageId);
+          if (tracking) {
+            tracking.redisImageId = imageId;
+            proofUploadTracking.set(originalMessageId, tracking);
+            console.log('[DEBUG] ✅ Redis image ID stored in tracking');
+          }
+        } catch (redisError) {
+          console.warn('[WARN] Failed to save image to Redis:', redisError.message);
+          // Don't block - image is already sent with Discord URL
+        }
+      });
+    } catch (error) {
+      console.error('[ERROR] Failed to send proof message:', error);
+      botLogs.addLog('PROOF_ERROR', 'Failed to send proof message', message.author.id, { error: error.message });
+      return message.reply({ content: '⚠️ Failed to send proof. Please try uploading again.' });
+    }
+    
+    try {
 
-  const auction = Array.from(auctions.values()).find(a => a.channelId === message.channel.id);
-  if (!auction) return;
+      // Image URL for original embed thumbnail
+      const newImageUrl = imageUrl;
+      console.log('[DEBUG] Image URL for original embed:', newImageUrl?.substring(0, 50));
+      
+      // Update the original embed with thumbnail and remove upload button
+      console.log('[DEBUG] Attempting to update original embed...');
+      try {
+        const channel = guild.channels.cache.get(proofData.channelId || (proofData.type === 'trade' ? (trades.get(originalMessageId)?.channelId) : null));
+        console.log('[DEBUG] Original channel:', channel?.name, channel?.id);
+        if (channel && originalMessageId) {
+          console.log('[DEBUG] Fetching original message:', originalMessageId);
+          const originalMessage = await channel.messages.fetch(originalMessageId).catch(() => null);
+          console.log('[DEBUG] Original message found:', !!originalMessage);
+          if (originalMessage && originalMessage.embeds.length > 0) {
+            const updatedEmbed = EmbedBuilder.from(originalMessage.embeds[0])
+              .setThumbnail(newImageUrl);
+            
+            // Remove the upload proof button by sending message with empty components
+            await originalMessage.edit({ embeds: [updatedEmbed], components: [] });
+            botLogs.addLog('PROOF_SUCCESS', `Proof image added with thumbnail${isAdminUpload ? ' (admin upload)' : ''}`, message.author.id, { type: proofData.type });
+            console.log('[DEBUG] Original embed updated successfully - Upload button removed');
+          }
+        }
+      } catch (e) {
+        console.error('[ERROR] Error updating original embed with thumbnail:', e);
+        botLogs.addLog('PROOF_ERROR', 'Failed to update original embed', message.author.id, { error: e.message });
+      }
+
+      // Send a new message in the private channel with delete button
+      console.log('[DEBUG] Sending delete button to private channel...');
+      try {
+        const privateChannel = guild.channels.cache.get(proofData.privateChannelId);
+        console.log('[DEBUG] Private channel:', privateChannel?.name, privateChannel?.id);
+        if (privateChannel) {
+          const deleteButton = new ButtonBuilder()
+            .setCustomId(`delete_channel_${proofData.privateChannelId}`)
+            .setLabel('Delete Channel')
+            .setStyle(ButtonStyle.Danger);
+
+          const row = new ActionRowBuilder().addComponents(deleteButton);
+          await privateChannel.send({ content: '✅ **Proof submitted successfully!**\n\nYou can now delete this channel.', components: [row] });
+          console.log('[DEBUG] Delete button sent successfully');
+        }
+      } catch (e) {
+        console.error('[ERROR] Error sending delete button message to private channel:', e);
+        botLogs.addLog('PROOF_ERROR', 'Failed to send delete button message to private channel', message.author.id, { error: e.message });
+      }
+
+      // Mark as proof uploaded and clear tracking for this message
+      console.log('[DEBUG] Marking proof as uploaded and clearing tracking...');
+      const tracking = proofUploadTracking.get(originalMessageId);
+      console.log('[DEBUG] Attempting to get proofUploadTracking for originalMessageId:', originalMessageId);
+      console.log('[DEBUG] Current proofUploadTracking keys:', Array.from(proofUploadTracking.keys()));
+      
+      if (tracking) {
+        console.log('[DEBUG] Found tracking entry, marking as proofUploaded');
+        tracking.proofUploaded = true;
+        if (tracking.timeout) clearTimeout(tracking.timeout);
+        if (tracking.reminderTimeouts) {
+          console.log('[DEBUG] Clearing', tracking.reminderTimeouts.length, 'reminder timeouts');
+          tracking.reminderTimeouts.forEach(id => clearTimeout(id));
+        }
+      } else {
+        console.warn('[WARN] proofUploadTracking entry not found for:', originalMessageId, 'Available keys:', Array.from(proofUploadTracking.keys()));
+      }
+      proofUploadTracking.delete(originalMessageId);
+      console.log('[DEBUG] Sending success reply to user...');
+      message.reply(`✅ Proof image has been submitted and recorded!${isAdminUpload ? ' (Admin upload)' : ''}`);
+      console.log('[DEBUG] Deleting from waitingForProofUploads...');
+      waitingForProofUploads.delete(message.author.id);
+      console.log('[DEBUG] Proof upload processing completed successfully!');
+      return;
+    } catch (e) {
+      console.error('[ERROR] ❌ EXCEPTION IN PROOF UPLOAD PROCESSING ❌');
+      console.error('[ERROR] Exception object:', e);
+      console.error('[ERROR] Exception type:', e.constructor.name);
+      console.error('[ERROR] Exception message:', e.message);
+      console.error('[ERROR] Stack trace:', e.stack);
+      botLogs.addLog('PROOF_ERROR', 'Failed to process proof upload', message.author.id, { error: e.message, stack: e.stack });
+      message.reply({ content: '⚠️ An error occurred while processing your proof image. Please try again.' }).catch(err => console.error('Failed to send error reply:', err));
+      waitingForProofUploads.delete(message.author.id);
+    }
+  }
 
   // Parse bid messages
   const bidRegex = /bid (\d+(?:,\d{3})*|\d+K?)(?:\s+and (.+))?/i;
@@ -1057,6 +2186,219 @@ function formatBid(num) {
     }
   }
   return num.toString();
+}
+
+// Function to save proof image to Redis and return unique ID
+async function saveProofImageToRedis(imageBuffer, originalFileName) {
+  try {
+    if (!uuidv4) {
+      const uuidModule = await import('uuid');
+      uuidv4 = uuidModule.v4;
+    }
+    const imageId = uuidv4();
+    const base64Image = imageBuffer.toString('base64');
+    const imageData = {
+      id: imageId,
+      fileName: originalFileName || 'proof.png',
+      size: imageBuffer.length,
+      uploadedAt: Date.now(),
+      base64: base64Image
+    };
+    
+    // Save to Redis with 30 day TTL (2592000 seconds)
+    const key = `proof:images:${imageId}`;
+    await redisClient.setEx(key, 2592000, JSON.stringify(imageData));
+    
+    console.log('[DEBUG] ✅ Image saved to Redis with ID:', imageId);
+    return imageId;
+  } catch (e) {
+    console.error('[ERROR] Failed to save image to Redis:', e);
+    throw e;
+  }
+}
+
+// Function to retrieve proof image from Redis
+async function getProofImageFromRedis(imageId) {
+  try {
+    const key = `proof:images:${imageId}`;
+    const data = await redisClient.get(key);
+    if (data) {
+      const imageData = JSON.parse(data);
+      return Buffer.from(imageData.base64, 'base64');
+    }
+    return null;
+  } catch (e) {
+    console.error('[ERROR] Failed to retrieve image from Redis:', e);
+    return null;
+  }
+}
+
+// Function to start proof upload timeout
+function startProofUploadTimeout(messageId, guild, proofData) {
+  try {
+    // Clear existing timeout if any
+    if (proofUploadTracking.has(messageId)) {
+      const existing = proofUploadTracking.get(messageId);
+      if (existing.timeout) clearTimeout(existing.timeout);
+      if (existing.reminderTimeouts) {
+        existing.reminderTimeouts.forEach(id => clearTimeout(id));
+      }
+    }
+
+    const trackingData = {
+      type: proofData.type,
+      hostId: proofData.hostId,
+      guestId: proofData.guestId,
+      reminderCount: 0,
+      reminderTimestamp: Date.now()
+    };
+
+    proofUploadTracking.set(messageId, trackingData);
+    console.log('[DEBUG] Set proofUploadTracking for messageId:', messageId, 'trackingData:', trackingData);
+
+    // Set timeout for 3 minutes
+    const timeoutId = setTimeout(async () => {
+      try {
+        const tracking = proofUploadTracking.get(messageId);
+        if (!tracking || tracking.proofUploaded) return;
+
+        // Mark as trade not completed - change color to red and remove buttons, add admin upload button
+        let trade, channel, message;
+        
+        if (proofData.type === 'trade') {
+          trade = trades.get(messageId);
+          if (trade) {
+            channel = guild.channels.cache.get(trade.channelId);
+            if (channel) {
+              message = await channel.messages.fetch(messageId).catch(() => null);
+              if (message && message.embeds.length > 0) {
+                const adminUploadButton = new ButtonBuilder()
+                  .setCustomId(`admin_upload_proof_trade_${messageId}`)
+                  .setLabel('Admin Upload Proof')
+                  .setStyle(ButtonStyle.Danger);
+                
+                const updatedEmbed = EmbedBuilder.from(message.embeds[0])
+                  .setColor(0xff0000)
+                  .setDescription(`**Status:** ❌ Trade Not Completed (Proof Timeout)\n\n**Host:** <@${trade.host.id}>\n**Guest:** <@${trade.acceptedUser.id}>`);
+                
+                await message.edit({ embeds: [updatedEmbed], components: [new ActionRowBuilder().addComponents(adminUploadButton)] }).catch(() => null);
+                botLogs.addLog('PROOF_TIMEOUT', 'Trade marked as not completed due to proof timeout', null, { tradeId: messageId });
+                
+                // Apply suspensions to both users
+                await applySuspension(guild, trade.host.id, 'TRADE');
+                await applySuspension(guild, trade.acceptedUser.id, 'TRADE');
+              }
+            }
+          }
+        } else if (proofData.type === 'auction') {
+          // For auction, mark as failed and add admin upload button
+          const auctionData = finishedAuctions.get(messageId);
+          if (auctionData) {
+            channel = guild.channels.cache.get(auctionData.channelId);
+            if (channel) {
+              message = await channel.messages.fetch(messageId).catch(() => null);
+              if (message && message.embeds.length > 0) {
+                const adminUploadButton = new ButtonBuilder()
+                  .setCustomId(`admin_upload_proof_auction_${messageId}`)
+                  .setLabel('Admin Upload Proof')
+                  .setStyle(ButtonStyle.Danger);
+                
+                const updatedEmbed = EmbedBuilder.from(message.embeds[0])
+                  .setColor(0xff0000)
+                  .setDescription(`**Status:** ❌ Auction Proof Not Submitted`);
+                
+                await message.edit({ embeds: [updatedEmbed], components: [new ActionRowBuilder().addComponents(adminUploadButton)] }).catch(() => null);
+                botLogs.addLog('PROOF_TIMEOUT', 'Auction marked as proof failed', null, { auctionId: messageId });
+                
+                // Apply suspensions to both users
+                await applySuspension(guild, auctionData.host.id, 'AUCTION');
+                const winnerId = auctionData.winner.split('<@')[1]?.split('>')[0];
+                if (winnerId) await applySuspension(guild, winnerId, 'AUCTION');
+              }
+            }
+          }
+        } else if (proofData.type === 'giveaway') {
+          // For giveaway, mark as failed and add admin upload button
+          const giveawayData = finishedGiveaways.get(messageId);
+          if (giveawayData) {
+            channel = guild.channels.cache.get(giveawayData.channelId);
+            if (channel) {
+              message = await channel.messages.fetch(messageId).catch(() => null);
+              if (message && message.embeds.length > 0) {
+                const adminUploadButton = new ButtonBuilder()
+                  .setCustomId(`admin_upload_proof_giveaway_${messageId}`)
+                  .setLabel('Admin Upload Proof')
+                  .setStyle(ButtonStyle.Danger);
+                
+                const updatedEmbed = EmbedBuilder.from(message.embeds[0])
+                  .setColor(0xff0000)
+                  .setDescription(`**Status:** ❌ Giveaway Proof Not Submitted`);
+                
+                await message.edit({ embeds: [updatedEmbed], components: [new ActionRowBuilder().addComponents(adminUploadButton)] }).catch(() => null);
+                botLogs.addLog('PROOF_TIMEOUT', 'Giveaway marked as proof failed', null, { giveawayId: messageId });
+                
+                // Apply suspensions to both users
+                await applySuspension(guild, giveawayData.host.id, 'GIVEAWAY');
+                await applySuspension(guild, giveawayData.winner.id, 'GIVEAWAY');
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.error('Error in proof timeout:', e);
+      }
+      
+      proofUploadTracking.delete(messageId);
+    }, PROOF_UPLOAD_TIMEOUT);
+
+    trackingData.timeout = timeoutId;
+
+    // Set reminders (3 times, one every 3 minutes: at 3min, 6min, 9min)
+    const reminderTimeouts = [];
+    let reminderCount = 0;
+    const reminderTimes = [3 * 60 * 1000, 6 * 60 * 1000, 9 * 60 * 1000]; // 3, 6, 9 minutes
+
+    reminderTimes.forEach((delayTime) => {
+      const reminderId = setTimeout(async () => {
+        try {
+          reminderCount++;
+          const tracking = proofUploadTracking.get(messageId);
+          if (!tracking || tracking.proofUploaded) {
+            return;
+          }
+
+          const channel = guild.channels.cache.get(proofData.channelId);
+          if (channel) {
+            const timeRemaining = Math.ceil((PROOF_UPLOAD_TIMEOUT - (Date.now() - trackingData.reminderTimestamp)) / 1000);
+            const timeMinutes = Math.ceil(timeRemaining / 60);
+            
+            let message = `⏰ **Proof Upload Reminder (${reminderCount}/${PROOF_MAX_REMINDERS})**\n\n`;
+            
+            if (proofData.type === 'trade') {
+              message += `<@${proofData.hostId}> and <@${proofData.guestId}>, please upload the proof image for your trade.\n\n`;
+            } else {
+              message += `<@${proofData.hostId}> and <@${proofData.guestId}>, please upload the proof image for your ${proofData.type}.\n\n`;
+            }
+            
+            message += `⏱️ Time remaining: ${timeMinutes} minute${timeMinutes !== 1 ? 's' : ''}\n`;
+            message += `📸 Upload the image in this channel to complete the proof.`;
+            
+            await channel.send(message).catch(() => null);
+            botLogs.addLog('PROOF_REMINDER', `Reminder ${reminderCount}/${PROOF_MAX_REMINDERS} sent`, null, { type: proofData.type, messageId, delayMinutes: delayTime / 60000 });
+          }
+        } catch (e) {
+          console.error('Error in reminder timeout:', e);
+        }
+      }, delayTime);
+      
+      reminderTimeouts.push(reminderId);
+    });
+
+    trackingData.reminderTimeouts = reminderTimeouts;
+
+  } catch (e) {
+    console.error('Error starting proof upload timeout:', e);
+  }
 }
 
 function parseDuration(str) {
@@ -1268,7 +2610,7 @@ client.on('interactionCreate', async (interaction) => {
 
     if (commandName === 'bid') {
       const auction = Array.from(auctions.values()).find(a => a.channelId === interaction.channel.id);
-      if (!auction) return sendErrorReply(interaction, 'E21');
+      if (!auction) return sendErrorReply(interaction, 'E16');
 
       // Show modal
       const modal = new ModalBuilder()
@@ -1299,7 +2641,7 @@ client.on('interactionCreate', async (interaction) => {
 
     if (commandName === 'endauction') {
       const auction = Array.from(auctions.values()).find(a => a.channelId === interaction.channel.id);
-      if (!auction) return sendErrorReply(interaction, 'E21');
+      if (!auction) return sendErrorReply(interaction, 'E16');
       if (auction.host.id !== interaction.user.id) return sendErrorReply(interaction, 'E02');
 
       clearTimeout(auction.timer);
@@ -1309,7 +2651,7 @@ client.on('interactionCreate', async (interaction) => {
 
     if (commandName === 'auctionstatus') {
       const auction = Array.from(auctions.values()).find(a => a.channelId === interaction.channel.id);
-      if (!auction) return sendErrorReply(interaction, 'E21');
+      if (!auction) return sendErrorReply(interaction, 'E16');
 
       const embed = new EmbedBuilder()
         .setTitle('Auction Status')
@@ -1329,7 +2671,7 @@ client.on('interactionCreate', async (interaction) => {
 
       const messageId = interaction.options.getString('messageid');
       const auction = Array.from(auctions.values()).find(a => a.messageId === messageId);
-      if (!auction) return sendErrorReply(interaction, 'E33', 'Auction not found');
+      if (!auction) return sendErrorReply(interaction, 'E07', 'Auction not found');
 
       clearTimeout(auction.timer);
       clearInterval(auction.updateInterval);
@@ -1342,7 +2684,7 @@ client.on('interactionCreate', async (interaction) => {
         // ignore if message not found
       }
       auctions.delete(auction.channelId);
-      interaction.reply({ content: `Auction "${auction.title}" (from ${auction.host}) deleted by admin.`, flags: MessageFlags.Ephemeral });
+      await interaction.reply({ content: `Auction "${auction.title}" (from ${auction.host}) deleted by admin.`, flags: MessageFlags.Ephemeral });
     }
 
     if (commandName === 'endauctionadmin') {
@@ -1352,13 +2694,13 @@ client.on('interactionCreate', async (interaction) => {
 
       const messageId = interaction.options.getString('messageid');
       const auction = Array.from(auctions.values()).find(a => a.messageId === messageId);
-      if (!auction) return sendErrorReply(interaction, 'E33', 'Auction not found');
+      if (!auction) return sendErrorReply(interaction, 'E07', 'Auction not found');
 
       clearTimeout(auction.timer);
       clearInterval(auction.updateInterval);
       const channel = interaction.guild.channels.cache.get(auction.channelId);
       await endAuction(channel);
-      interaction.reply({ content: `Auction "${auction.title}" (from ${auction.host}) ended by admin.`, flags: MessageFlags.Ephemeral });
+      await interaction.reply({ content: `Auction "${auction.title}" (from ${auction.host}) ended by admin.`, flags: MessageFlags.Ephemeral });
     }
 
     if (commandName === 'restartauction') {
@@ -1368,7 +2710,7 @@ client.on('interactionCreate', async (interaction) => {
 
       const messageId = interaction.options.getString('messageid');
       const auction = Array.from(auctions.values()).find(a => a.messageId === messageId);
-      if (!auction) return sendErrorReply(interaction, 'E33', 'Auction not found');
+      if (!auction) return sendErrorReply(interaction, 'E07', 'Auction not found');
 
       clearTimeout(auction.timer);
       clearInterval(auction.updateInterval);
@@ -1389,7 +2731,7 @@ client.on('interactionCreate', async (interaction) => {
           .setTitle(auction.title)
           .setDescription(`${auction.description}\n\n**Looking For:** ${auction.model}\n**Starting Price:** ${formatBid(auction.startingPrice)} 💎\n**Current Bid:** ${formatBid(currentBid)} 💎\n**Time Remaining:** ${remaining}s\n**Hosted by:** ${auction.host}`)
           .setColor(0x00ff00)
-          .setFooter({ text: 'Version 1.0.9 | Made By Atlas' })
+          .setFooter({ text: 'Version 1.1.3 | Made By Atlas' })
           .setThumbnail('https://media.discordapp.net/attachments/1461378333278470259/1461514275976773674/B2087062-9645-47D0-8918-A19815D8E6D8.png?ex=696ad4bd&is=6969833d&hm=2f262b12ac860c8d92f40789893fda4f1ea6289bc5eb114c211950700eb69a79&=&format=webp&quality=lossless&width=1376&height=917');
         try {
           const channel = interaction.guild.channels.cache.get(auction.channelId);
@@ -1411,7 +2753,7 @@ client.on('interactionCreate', async (interaction) => {
       await logAdminCommand(interaction, commandName);
 
       const channel = interaction.options.getChannel('channel');
-      if (channel.type !== 0) return sendErrorReply(interaction, 'E72', 'Please select a text channel');
+      if (channel.type !== 0) return sendErrorReply(interaction, 'E49', 'Please select a text channel');
       redirectChannelId = channel.id;
       interaction.reply({ content: `All future auctions will be redirected to ${channel}.`, flags: MessageFlags.Ephemeral });
     }
@@ -1422,7 +2764,7 @@ client.on('interactionCreate', async (interaction) => {
       await logAdminCommand(interaction, commandName);
 
       const channel = interaction.options.getChannel('channel');
-      if (channel.type !== 0) return sendErrorReply(interaction, 'E72', 'Please select a text channel');
+      if (channel.type !== 0) return sendErrorReply(interaction, 'E49', 'Please select a text channel');
       redirectTradeChannelId = channel.id;
       interaction.reply({ content: `All future trades will be redirected to ${channel}.`, flags: MessageFlags.Ephemeral });
     }
@@ -1433,7 +2775,7 @@ client.on('interactionCreate', async (interaction) => {
       await logAdminCommand(interaction, commandName);
 
       const channel = interaction.options.getChannel('channel');
-      if (channel.type !== 0) return sendErrorReply(interaction, 'E72', 'Please select a text channel');
+      if (channel.type !== 0) return sendErrorReply(interaction, 'E49', 'Please select a text channel');
       redirectInventoryChannelId = channel.id;
       interaction.reply({ content: `All inventories will be posted to ${channel}.`, flags: MessageFlags.Ephemeral });
     }
@@ -1452,10 +2794,7 @@ client.on('interactionCreate', async (interaction) => {
       const currentTradeCount = userTradeCount.get(interaction.user.id) || 0;
 
       if (currentTradeCount >= userTradeLimit) {
-        return interaction.reply({ 
-          content: `You have reached your trade creation limit (${userTradeLimit}). ${isAdmin ? 'As an admin, you can have up to 10 active trades.' : 'Regular users can have up to 2 active trades.'}`,
-          flags: MessageFlags.Ephemeral 
-        });
+        return sendErrorReply(interaction, 'E81', `You have reached your trade creation limit (${userTradeLimit}). ${isAdmin ? 'As an admin, you can have up to 10 active trades.' : 'Regular users can have up to 2 active trades.'}`);
       }
 
       const versionFile = require('./version.json');
@@ -1534,7 +2873,7 @@ client.on('interactionCreate', async (interaction) => {
       await updateTradeEmbed(interaction.guild, trade, messageId);
 
       const channel = interaction.guild.channels.cache.get(trade.channelId);
-      await channel.send(`❌ This trade has been cancelled by an admin.`);
+      await channel.send(`⚠️ This trade has been cancelled by an admin.`);
 
       interaction.reply({ content: `Trade has been cancelled.`, flags: MessageFlags.Ephemeral });
     }
@@ -1612,6 +2951,88 @@ client.on('interactionCreate', async (interaction) => {
       }
     }
 
+    if (commandName === 'suspend') {
+      // Check if user has admin role
+      const adminRoles = ['1461505505401896972', '1461481291118678087', '1461484563183435817'];
+      const hasAdminRole = interaction.member.roles.cache.some(role => adminRoles.includes(role.id));
+      if (!hasAdminRole) return sendErrorReply(interaction, 'E01');
+
+      await logAdminCommand(interaction, commandName);
+
+      const targetUser = interaction.options.getUser('user');
+      const category = interaction.options.getString('category');
+      const timeStr = interaction.options.getString('time');
+
+      try {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+        // Check if user is already suspended for this category
+        const existingSuspension = checkSuspension(targetUser.id, category.toLowerCase());
+        if (existingSuspension) {
+          // Add time to existing suspension
+          const additionalDuration = parseDuration(timeStr);
+          const remainingTime = existingSuspension.timeRemaining;
+          const newDuration = remainingTime + additionalDuration;
+          
+          // Update suspension
+          userSuspensions.set(targetUser.id, {
+            type: category.toUpperCase(),
+            startTime: Date.now() - (existingSuspension.duration - remainingTime),
+            roleId: existingSuspension.roleId,
+            duration: newDuration
+          });
+
+          // Reschedule role removal
+          setTimeout(async () => {
+            await removeSuspension(interaction.guild, targetUser.id);
+          }, newDuration);
+
+          await interaction.editReply({ content: `✅ Added ${formatDuration(additionalDuration)} to <@${targetUser.id}>'s existing ${category} suspension. New total remaining: ${formatDuration(newDuration)}.` });
+        } else {
+          // Apply new suspension
+          await applySuspension(interaction.guild, targetUser.id, category, interaction.user.id, parseDuration(timeStr), `Manually suspended by admin`);
+          await interaction.editReply({ content: `✅ User <@${targetUser.id}> has been suspended for ${category} activities for ${formatDuration(parseDuration(timeStr))}.` });
+        }
+      } catch (error) {
+        console.error('Error suspending user:', error);
+        await interaction.editReply({ content: '❌ An error occurred while suspending the user.' });
+      }
+    }
+
+    if (commandName === 'unsuspend') {
+      // Check if user has admin role
+      const adminRoles = ['1461505505401896972', '1461481291118678087', '1461484563183435817'];
+      const hasAdminRole = interaction.member.roles.cache.some(role => adminRoles.includes(role.id));
+      if (!hasAdminRole) return sendErrorReply(interaction, 'E01');
+
+      await logAdminCommand(interaction, commandName);
+
+      const targetUser = interaction.options.getUser('user');
+      const category = interaction.options.getString('category');
+      const reason = interaction.options.getString('reason');
+
+      try {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+        // Check if user is suspended for this category
+        const suspension = checkSuspension(targetUser.id, category.toLowerCase());
+        if (!suspension) {
+          return await interaction.editReply({ content: `❌ User <@${targetUser.id}> is not suspended for ${category.toLowerCase()} activities.` });
+        }
+
+        // Remove suspension
+        const success = await manualSuspensionRemoval(interaction.guild, targetUser.id, interaction.user.id, reason);
+        if (success) {
+          await interaction.editReply({ content: `✅ User <@${targetUser.id}> has been unsuspended from ${category} activities.` });
+        } else {
+          await interaction.editReply({ content: '❌ An error occurred while uns suspending the user.' });
+        }
+      } catch (error) {
+        console.error('Error uns suspending user:', error);
+        await interaction.editReply({ content: '❌ An error occurred while uns suspending the user.' });
+      }
+    }
+
     if (commandName === 'clearbotmessages') {
       // Check if user has admin role
       const adminRoles = ['1461505505401896972', '1461481291118678087', '1461484563183435817'];
@@ -1635,7 +3056,7 @@ client.on('interactionCreate', async (interaction) => {
         const messagesToDelete = botMessages.first(amount);
         
         if (messagesToDelete.length === 0) {
-          return interaction.editReply({ content: '❌ No bot messages found in this channel.' });
+          return sendErrorReply(interaction, 'E64');
         }
         
         // Delete the messages
@@ -1655,7 +3076,68 @@ client.on('interactionCreate', async (interaction) => {
         
       } catch (error) {
         console.error('Error clearing bot messages:', error);
-        await interaction.editReply({ content: '❌ An error occurred while clearing bot messages.' });
+        await interaction.editReply({ content: `⚠️ ${ERROR_CODES['E65']} | Error (E65)` });
+      }
+    }
+
+    if (commandName === 'addfieldserrors') {
+      if (!hasAdminRole(interaction.member)) return sendErrorReply(interaction, 'E05');
+      
+      await logAdminCommand(interaction, commandName);
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+      try {
+        const errorLog = getAddFieldErrors();
+        
+        if (errorLog.total === 0) {
+          await interaction.editReply({ content: '✅ No addFieldSafely errors logged.' });
+          return;
+        }
+
+        // Create embed with error summary
+        const embed = new EmbedBuilder()
+          .setColor('#FF6B6B')
+          .setTitle('⚠️ addFieldSafely Error Report')
+          .setDescription(`Total Errors Logged: **${errorLog.total}**`)
+          .addFields(
+            { name: 'Invalid Names', value: `${errorLog.summary.invalidNames}`, inline: true },
+            { name: 'Empty Values', value: `${errorLog.summary.emptyValues}`, inline: true },
+            { name: 'Type Errors', value: `${errorLog.summary.typeErrors}`, inline: true },
+            { name: 'Truncated Fields', value: `${errorLog.summary.truncated}`, inline: true },
+            { name: 'Embed Add Failed', value: `${errorLog.summary.embedFailed}`, inline: true },
+            { name: 'Unexpected Errors', value: `${errorLog.summary.unexpected}`, inline: true }
+          );
+
+        // Add recent errors (last 3)
+        const recentErrors = errorLog.errors.slice(-3);
+        if (recentErrors.length > 0) {
+          let errorDetails = '';
+          recentErrors.forEach((err, idx) => {
+            const errorTypes = err.errors.map(e => e.type).join(', ');
+            const timestamp = new Date(err.timestamp).toLocaleString();
+            errorDetails += `**[${idx + 1}] ${errorTypes}**\n`;
+            errorDetails += `Name: \`${err.name.substring(0, 40)}\`\n`;
+            errorDetails += `Time: ${timestamp}\n`;
+            
+            err.errors.forEach(errDetail => {
+              errorDetails += `  • ${errDetail.message}\n`;
+            });
+            errorDetails += '\n';
+          });
+          
+          embed.addFields({ 
+            name: 'Recent Errors (Last 3)', 
+            value: errorDetails.substring(0, 1024) || 'No recent errors',
+            inline: false 
+          });
+        }
+
+        embed.setFooter({ text: `Max logs: ${MAX_ERROR_LOG_SIZE} | Use /addfieldserrors to refresh` });
+
+        await interaction.editReply({ embeds: [embed] });
+      } catch (error) {
+        console.error('Error in addfieldserrors command:', error);
+        await sendErrorReply(interaction, 'E50');
       }
     }
 
@@ -1700,8 +3182,9 @@ client.on('interactionCreate', async (interaction) => {
             { name: '/update', value: 'Update auction, trade, and inventory embeds (admin only)', inline: false },
             { name: '/savedata', value: 'Manually save all bot data to Redis (admin only)', inline: false },
             { name: '/clearbotmessages [amount]', value: 'Delete bot messages in this channel (admin only)', inline: false },
-            { name: '/botcmds', value: 'View all available bot commands', inline: false },
-            { name: '/logsdesc', value: 'View all error codes with their descriptions (admin only)', inline: false }
+            { name: '/suspend [user] [category] [time]', value: 'Suspend a user from trades/giveaways/auctions (admin only)', inline: false },
+            { name: '/unsuspend [user] [category] [reason]', value: 'Remove suspension from a user (admin only)', inline: false },
+            { name: '/botcmds', value: 'View all available bot commands', inline: false }
           ]
         }
       ];
@@ -1757,64 +3240,60 @@ client.on('interactionCreate', async (interaction) => {
       await interaction.reply({ embeds: [embed], components: [buttons] });
     }
 
-    if (commandName === 'logsdesc') {
+    if (commandName === 'botlogs') {
       const adminRoles = ['1461505505401896972', '1461481291118678087', '1461484563183435817'];
       const hasAdminRole = interaction.member.roles.cache.some(role => adminRoles.includes(role.id));
-      if (!hasAdminRole) return sendErrorReply(interaction, 'E01');
+      if (!hasAdminRole) return sendErrorReply(interaction, 'E05');
 
-      // Get all error codes as array
-      const errorCodesArray = Object.entries(ERROR_CODES).map(([code, description]) => ({
-        code,
-        description,
-        category: getCategoryFromErrorCode(code)
-      }));
+      const typeFilter = interaction.options.getString('type');
+      const logs = botLogs.getLogs(typeFilter, 100); // Get up to 100 logs
 
-      // Sort by code number
-      errorCodesArray.sort((a, b) => {
-        const numA = parseInt(a.code.replace('E', ''));
-        const numB = parseInt(b.code.replace('E', ''));
-        return numA - numB;
-      });
-
-      // Create pages with max 15 items per page
-      const itemsPerPage = 15;
-      const pages = [];
-      
-      for (let i = 0; i < errorCodesArray.length; i += itemsPerPage) {
-        const pageErrors = errorCodesArray.slice(i, i + itemsPerPage);
-        pages.push(pageErrors);
+      if (logs.length === 0) {
+        return interaction.reply({ content: 'No logs found.', flags: MessageFlags.Ephemeral });
       }
 
-      if (pages.length === 0) {
-        return interaction.reply({ content: 'No error codes found.', flags: MessageFlags.Ephemeral });
-      }
+      const ITEMS_PER_PAGE = 10;
+      const totalPages = Math.ceil(logs.length / ITEMS_PER_PAGE);
+      const descriptions = botLogs.getLogDescriptions();
 
-      let currentPage = 0;
+      const createLogEmbed = (page) => {
+        const start = page * ITEMS_PER_PAGE;
+        const end = start + ITEMS_PER_PAGE;
+        const pageLogs = logs.slice(start, end);
 
-      const createErrorEmbed = (pageIndex) => {
-        const pageErrors = pages[pageIndex];
         const embed = new EmbedBuilder()
-          .setTitle('📋 Error Codes & Descriptions')
-          .setColor(0x0099ff)
-          .setDescription(`Page ${pageIndex + 1}/${pages.length} (${pages.length === 1 ? errorCodesArray.length : pageIndex === pages.length - 1 ? errorCodesArray.length - (pageIndex * itemsPerPage) : itemsPerPage} errors)`)
-          .setFooter({ text: `Made By Atlas | Total Errors: ${errorCodesArray.length}` })
-          .setThumbnail('https://media.discordapp.net/attachments/1461378333278470259/1461514275976773674/B2087062-9645-47D0-8918-A19815D8E6D8.png?ex=696ad4bd&is=6969833d&hm=2f262b12ac860c8d92f40789893fda4f1ea6289bc5eb114c211950700eb69a79&=&format=webp&quality=lossless&width=1376&height=917');
+          .setTitle('Bot Logs')
+          .setColor(0x3498db)
+          .setFooter({ text: `Page ${page + 1}/${totalPages} | Total Logs: ${logs.length}` })
+          .setTimestamp();
 
-        pageErrors.forEach((error) => {
-          const fieldName = `${error.code} - ${error.category}`;
-          embed.addFields({ name: fieldName, value: error.description, inline: false });
+        if (typeFilter) {
+          embed.setDescription(`**Filtered by type:** ${typeFilter}\n**Description:** ${descriptions[typeFilter] || 'No description available'}`);
+        }
+
+        pageLogs.forEach(log => {
+          const timestamp = new Date(log.timestamp).toLocaleString('pt-BR');
+          const userMention = log.userId ? `<@${log.userId}>` : 'System';
+          const details = log.details && Object.keys(log.details).length > 0 ? 
+            `\nDetails: ${JSON.stringify(log.details, null, 2)}` : '';
+
+          embed.addFields({
+            name: `${log.type} #${log.id}`,
+            value: `**User:** ${userMention}\n**Time:** ${timestamp}\n**Message:** ${log.message}${details}`,
+            inline: false
+          });
         });
 
         return embed;
       };
 
-      const createErrorButtons = (pageIndex) => {
+      const createButtons = (page) => {
         const row = new ActionRowBuilder();
-
-        if (pageIndex > 0) {
+        
+        if (page > 0) {
           row.addComponents(
             new ButtonBuilder()
-              .setCustomId(`logsdesc_prev_${pageIndex}`)
+              .setCustomId(`botlogs_prev_${page}`)
               .setLabel('← Previous')
               .setStyle(ButtonStyle.Primary)
           );
@@ -1822,16 +3301,16 @@ client.on('interactionCreate', async (interaction) => {
 
         row.addComponents(
           new ButtonBuilder()
-            .setCustomId(`logsdesc_page`)
-            .setLabel(`${pageIndex + 1}/${pages.length}`)
-            .setStyle(ButtonStyle.Secondary)
-            .setDisabled(true)
+              .setCustomId('botlogs_page')
+              .setLabel(`${page + 1}/${totalPages}`)
+              .setStyle(ButtonStyle.Secondary)
+              .setDisabled(true)
         );
 
-        if (pageIndex < pages.length - 1) {
+        if (page < totalPages - 1) {
           row.addComponents(
             new ButtonBuilder()
-              .setCustomId(`logsdesc_next_${pageIndex}`)
+              .setCustomId(`botlogs_next_${page}`)
               .setLabel('Next →')
               .setStyle(ButtonStyle.Primary)
           );
@@ -1840,10 +3319,11 @@ client.on('interactionCreate', async (interaction) => {
         return row;
       };
 
-      const embed = createErrorEmbed(currentPage);
-      const buttons = createErrorButtons(currentPage);
+      let currentPage = 0;
+      const embed = createLogEmbed(currentPage);
+      const buttons = createButtons(currentPage);
 
-      await interaction.reply({ embeds: [embed], components: [buttons] });
+      await interaction.reply({ embeds: [embed], components: buttons.length > 1 ? [buttons] : [] });
     }
   }
 
@@ -1890,8 +3370,9 @@ client.on('interactionCreate', async (interaction) => {
             { name: '/update', value: 'Update auction, trade, and inventory embeds (admin only)', inline: false },
             { name: '/savedata', value: 'Manually save all bot data to Redis (admin only)', inline: false },
             { name: '/clearbotmessages [amount]', value: 'Delete bot messages in this channel (admin only)', inline: false },
-            { name: '/botcmds', value: 'View all available bot commands', inline: false },
-            { name: '/logsdesc', value: 'View all error codes with their descriptions (admin only)', inline: false }
+            { name: '/suspend [user] [category] [time]', value: 'Suspend a user from trades/giveaways/auctions (admin only)', inline: false },
+            { name: '/unsuspend [user] [category] [reason]', value: 'Remove suspension from a user (admin only)', inline: false },
+            { name: '/botcmds', value: 'View all available bot commands', inline: false }
           ]
         }
       ];
@@ -1953,29 +3434,14 @@ client.on('interactionCreate', async (interaction) => {
       return;
     }
 
-    // Handle logsdesc pagination
-    if (interaction.customId.startsWith('logsdesc_')) {
-      const errorCodesArray = Object.entries(ERROR_CODES).map(([code, description]) => ({
-        code,
-        description,
-        category: getCategoryFromErrorCode(code)
-      }));
+    // Handle botlogs pagination
+    if (interaction.customId.startsWith('botlogs_')) {
+      const typeFilter = interaction.message.embeds[0].description?.match(/Filtered by type: (\w+)/)?.[1];
+      const logs = botLogs.getLogs(typeFilter, 100);
 
-      // Sort by code number
-      errorCodesArray.sort((a, b) => {
-        const numA = parseInt(a.code.replace('E', ''));
-        const numB = parseInt(b.code.replace('E', ''));
-        return numA - numB;
-      });
-
-      // Create pages with max 15 items per page
-      const itemsPerPage = 15;
-      const pages = [];
-      
-      for (let i = 0; i < errorCodesArray.length; i += itemsPerPage) {
-        const pageErrors = errorCodesArray.slice(i, i + itemsPerPage);
-        pages.push(pageErrors);
-      }
+      const ITEMS_PER_PAGE = 10;
+      const totalPages = Math.ceil(logs.length / ITEMS_PER_PAGE);
+      const descriptions = botLogs.getLogDescriptions();
 
       let currentPage = 0;
       if (interaction.customId.includes('_prev_')) {
@@ -1984,30 +3450,44 @@ client.on('interactionCreate', async (interaction) => {
         currentPage = parseInt(interaction.customId.split('_next_')[1]) + 1;
       }
 
-      const createErrorEmbed = (pageIndex) => {
-        const pageErrors = pages[pageIndex];
-        const embed = new EmbedBuilder()
-          .setTitle('📋 Error Codes & Descriptions')
-          .setColor(0x0099ff)
-          .setDescription(`Page ${pageIndex + 1}/${pages.length} (${pages.length === 1 ? errorCodesArray.length : pageIndex === pages.length - 1 ? errorCodesArray.length - (pageIndex * itemsPerPage) : itemsPerPage} errors)`)
-          .setFooter({ text: `Made By Atlas | Total Errors: ${errorCodesArray.length}` })
-          .setThumbnail('https://media.discordapp.net/attachments/1461378333278470259/1461514275976773674/B2087062-9645-47D0-8918-A19815D8E6D8.png?ex=696ad4bd&is=6969833d&hm=2f262b12ac860c8d92f40789893fda4f1ea6289bc5eb114c211950700eb69a79&=&format=webp&quality=lossless&width=1376&height=917');
+      const createLogEmbed = (page) => {
+        const start = page * ITEMS_PER_PAGE;
+        const end = start + ITEMS_PER_PAGE;
+        const pageLogs = logs.slice(start, end);
 
-        pageErrors.forEach((error) => {
-          const fieldName = `${error.code} - ${error.category}`;
-          embed.addFields({ name: fieldName, value: error.description, inline: false });
+        const embed = new EmbedBuilder()
+          .setTitle('Bot Logs')
+          .setColor(0x3498db)
+          .setFooter({ text: `Page ${page + 1}/${totalPages} | Total Logs: ${logs.length}` })
+          .setTimestamp();
+
+        if (typeFilter) {
+          embed.setDescription(`**Filtered by type:** ${typeFilter}\n**Description:** ${descriptions[typeFilter] || 'No description available'}`);
+        }
+
+        pageLogs.forEach(log => {
+          const timestamp = new Date(log.timestamp).toLocaleString('pt-BR');
+          const userMention = log.userId ? `<@${log.userId}>` : 'System';
+          const details = log.details && Object.keys(log.details).length > 0 ? 
+            `\nDetails: ${JSON.stringify(log.details, null, 2)}` : '';
+
+          embed.addFields({
+            name: `${log.type} #${log.id}`,
+            value: `**User:** ${userMention}\n**Time:** ${timestamp}\n**Message:** ${log.message}${details}`,
+            inline: false
+          });
         });
 
         return embed;
       };
 
-      const createErrorButtons = (pageIndex) => {
+      const createButtons = (page) => {
         const row = new ActionRowBuilder();
-
-        if (pageIndex > 0) {
+        
+        if (page > 0) {
           row.addComponents(
             new ButtonBuilder()
-              .setCustomId(`logsdesc_prev_${pageIndex}`)
+              .setCustomId(`botlogs_prev_${page}`)
               .setLabel('← Previous')
               .setStyle(ButtonStyle.Primary)
           );
@@ -2015,16 +3495,16 @@ client.on('interactionCreate', async (interaction) => {
 
         row.addComponents(
           new ButtonBuilder()
-            .setCustomId(`logsdesc_page`)
-            .setLabel(`${pageIndex + 1}/${pages.length}`)
+            .setCustomId('botlogs_page')
+            .setLabel(`${page + 1}/${totalPages}`)
             .setStyle(ButtonStyle.Secondary)
             .setDisabled(true)
-        );
-
-        if (pageIndex < pages.length - 1) {
+          );
+        
+        if (page < totalPages - 1) {
           row.addComponents(
             new ButtonBuilder()
-              .setCustomId(`logsdesc_next_${pageIndex}`)
+              .setCustomId(`botlogs_next_${page}`)
               .setLabel('Next →')
               .setStyle(ButtonStyle.Primary)
           );
@@ -2033,14 +3513,24 @@ client.on('interactionCreate', async (interaction) => {
         return row;
       };
 
-      const embed = createErrorEmbed(currentPage);
-      const buttons = createErrorButtons(currentPage);
+      const embed = createLogEmbed(currentPage);
+      const buttons = createButtons(currentPage);
 
-      await interaction.update({ embeds: [embed], components: [buttons] });
-      return;
+      await interaction.update({ embeds: [embed], components: buttons.length > 1 ? [buttons] : [] });
     }
 
     if (interaction.customId === 'bid_button') {
+      // Check suspension
+      const suspension = checkSuspension(interaction.user.id, 'auction');
+      if (suspension) {
+        const hours = Math.floor(suspension.timeRemaining / (1000 * 60 * 60));
+        const minutes = Math.floor((suspension.timeRemaining % (1000 * 60 * 60)) / (1000 * 60));
+        return interaction.reply({ 
+          content: `❌ **Suspended from Auction Activities**\n\n**Reason:** ${suspension.reason}\n**Time Remaining:** ${hours}h ${minutes}m\n\nYou cannot bid on auctions during suspension.`, 
+          flags: MessageFlags.Ephemeral 
+        });
+      }
+
       const auction = Array.from(auctions.values()).find(a => a.channelId === interaction.channel.id);
       if (!auction) return sendErrorReply(interaction, 'E16');
 
@@ -2072,9 +3562,9 @@ client.on('interactionCreate', async (interaction) => {
 
     if (interaction.customId === 'view_bids_button') {
       const auction = Array.from(auctions.values()).find(a => a.channelId === interaction.channel.id);
-      if (!auction) return sendErrorReply(interaction, 'E21');
+      if (!auction) return sendErrorReply(interaction, 'E16');
 
-      if (auction.bids.length === 0) return sendErrorReply(interaction, 'E28');
+      if (auction.bids.length === 0) return sendErrorReply(interaction, 'E23');
 
       // Sort bids by diamonds descending
       const sortedBids = auction.bids.sort((a, b) => b.diamonds - a.diamonds);
@@ -2092,26 +3582,37 @@ client.on('interactionCreate', async (interaction) => {
         .setTitle('Bid List')
         .setDescription(bidList)
         .setColor(0x00ff00)
-        .setFooter({ text: 'Version 1.0.9 | Made By Atlas' })
+        .setFooter({ text: 'Version 1.1.3 | Made By Atlas' })
         .setThumbnail('https://media.discordapp.net/attachments/1461378333278470259/1461514275976773674/B2087062-9645-47D0-8918-A19815D8E6D8.png?ex=696ad4bd&is=6969833d&hm=2f262b12ac860c8d92f40789893fda4f1ea6289bc5eb114c211950700eb69a79&=&format=webp&quality=lossless&width=1376&height=917');
 
       interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
     }
 
     if (interaction.customId.startsWith('giveaway_enter_')) {
+      // Check suspension
+      const suspension = checkSuspension(interaction.user.id, 'giveaway');
+      if (suspension) {
+        const hours = Math.floor(suspension.timeRemaining / (1000 * 60 * 60));
+        const minutes = Math.floor((suspension.timeRemaining % (1000 * 60 * 60)) / (1000 * 60));
+        return interaction.reply({ 
+          content: `❌ **Suspended from Giveaway Activities**\n\n**Reason:** ${suspension.reason}\n**Time Remaining:** ${hours}h ${minutes}m\n\nYou cannot participate in giveaways during suspension.`, 
+          flags: MessageFlags.Ephemeral 
+        });
+      }
+
       const messageId = interaction.message.id;
       const giveaway = giveaways.get(messageId);
       if (!giveaway) return sendErrorReply(interaction, 'E36', 'Giveaway not found');
 
       // Check if user is the giveaway host
       if (giveaway.host.id === interaction.user.id) {
-        return interaction.reply({ content: '❌ You can\'t enter your own raffle!', flags: MessageFlags.Ephemeral });
+        return await sendErrorReply(interaction, 'E44');
       }
 
       // Check if user already entered
       const alreadyEntered = giveaway.entries.some(entry => entry.user.id === interaction.user.id);
       if (alreadyEntered) {
-        return interaction.reply({ content: 'You are already entered in this giveaway!', flags: MessageFlags.Ephemeral });
+        return await sendErrorReply(interaction, 'E38');
       }
 
       // Check if user has special role for x2 entries
@@ -2174,6 +3675,76 @@ client.on('interactionCreate', async (interaction) => {
       await interaction.reply({ embeds: [entriesEmbed], flags: MessageFlags.Ephemeral });
     }
 
+    if (interaction.customId.startsWith('giveaway_page_prev_') || interaction.customId.startsWith('giveaway_page_next_')) {
+      const messageId = interaction.message.id;
+      const giveaway = giveaways.get(messageId);
+      
+      if (!giveaway) {
+        await interaction.reply({ content: 'Giveaway not found.', flags: MessageFlags.Ephemeral });
+        return;
+      }
+
+      const currentPage = giveaway.currentPage || 1;
+      const itemsPerPage = giveaway.itemsPerPage || 10;
+      const totalPages = Math.ceil(giveaway.items.length / itemsPerPage);
+      let newPage = currentPage;
+
+      if (interaction.customId.startsWith('giveaway_page_prev_') && currentPage > 1) newPage--;
+      if (interaction.customId.startsWith('giveaway_page_next_') && currentPage < totalPages) newPage++;
+
+      giveaway.currentPage = newPage;
+
+      // Get paginated items
+      const paginationData = paginateTradeItems(giveaway.items, newPage, itemsPerPage);
+
+      // Recreate giveaway embed
+      const embed = new EmbedBuilder()
+        .setTitle('🎁 Giveaway')
+        .setDescription(giveaway.description ? `**${giveaway.description}**\n\n**Click the button below to enter the giveaway!**` : '**Click the button below to enter the giveaway!**')
+        .setColor(0xFF1493)
+        .setFooter({ text: 'Version 1.1.3 | Made By Atlas' })
+        .setThumbnail('https://media.discordapp.net/attachments/1461378333278470259/1461514275976773674/B2087062-9645-47D0-8918-A19815D8E6D8.png?ex=696ad4bd&is=6969833d&hm=2f262b12ac860c8d92f40789893fda4f1ea6289bc5eb114c211950700eb69a79&=&format=webp&quality=lossless&width=1376&height=917');
+
+      const giveawayItemsField = totalPages > 1 
+        ? `${paginationData.text}\\n\\n*Page ${newPage}/${totalPages}*`
+        : paginationData.text;
+
+      addFieldSafely(embed, 'Giveaway Items', giveawayItemsField, false);
+      addFieldSafely(embed, 'Hosted by', giveaway.host.toString(), false);
+      
+      if (giveaway.description) {
+        addFieldSafely(embed, 'Description', giveaway.description, false);
+      }
+
+      addFieldSafely(embed, 'Time Remaining', 'Calculating...', false);
+
+      // Recreate buttons
+      const enterButton = new ButtonBuilder()
+        .setCustomId(`giveaway_enter_${messageId}`)
+        .setLabel('Enter Giveaway')
+        .setStyle(ButtonStyle.Success);
+
+      const entriesButton = new ButtonBuilder()
+        .setCustomId(`giveaway_entries_${messageId}`)
+        .setLabel(`${giveaway.entries.length || 0} Entries`)
+        .setStyle(ButtonStyle.Secondary);
+
+      const row = new ActionRowBuilder().addComponents(enterButton, entriesButton);
+      const components = [row];
+
+      // Add pagination buttons
+      if (totalPages > 1) {
+        const paginationRow = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId(`giveaway_page_prev_${messageId}`).setLabel('Previous').setStyle(ButtonStyle.Secondary).setDisabled(newPage === 1),
+          new ButtonBuilder().setCustomId(`giveaway_page_next_${messageId}`).setLabel('Next').setStyle(ButtonStyle.Secondary).setDisabled(newPage === totalPages)
+        );
+        components.push(paginationRow);
+      }
+
+      await interaction.update({ embeds: [embed], components });
+      return;
+    }
+
     if (interaction.customId.startsWith('giveaway_end_')) {
       const messageId = interaction.customId.replace('giveaway_end_', '');
       const giveaway = giveaways.get(messageId);
@@ -2182,7 +3753,7 @@ client.on('interactionCreate', async (interaction) => {
       if (giveaway.host.id !== interaction.user.id) {
         const adminRoles = ['1461505505401896972', '1461481291118678087', '1461484563183435817'];
         const hasAdminRole = interaction.member.roles.cache.some(role => adminRoles.includes(role.id));
-        if (!hasAdminRole) return interaction.reply({ content: 'Only the host or admin can end the giveaway.', flags: MessageFlags.Ephemeral });
+        if (!hasAdminRole) return sendErrorReply(interaction, 'E72');
       }
 
       // Clear update interval
@@ -2200,28 +3771,16 @@ client.on('interactionCreate', async (interaction) => {
               .setTitle('🎁 Giveaway')
               .setDescription(giveaway.description ? `**${giveaway.description}**\n\n**Ended by host**` : '**Ended by host**')
               .setColor(0xFF0000) // Red color
-              .setFooter({ text: 'Version 1.0.9 | Made By Atlas' })
+              .setFooter({ text: 'Version 1.1.3 | Made By Atlas' })
               .setThumbnail('https://media.discordapp.net/attachments/1461378333278470259/1461514275976773674/B2087062-9645-47D0-8918-A19815D8E6D8.png?ex=696ad4bd&is=6969833d&hm=2f262b12ac860c8d92f40789893fda4f1ea6289bc5eb114c211950700eb69a79&=&format=webp&quality=lossless&width=1376&height=917');
 
             const giveawayItemsText = formatItemsText(giveaway.items);
 
-            endedEmbed.addFields({
-              name: 'Giveaway Items',
-              value: giveawayItemsText,
-              inline: false
-            });
+            addFieldSafely(endedEmbed, 'Giveaway Items', giveawayItemsText, false);
 
-            endedEmbed.addFields({
-              name: 'Hosted by',
-              value: giveaway.host.toString(),
-              inline: false
-            });
+            addFieldSafely(endedEmbed, 'Hosted by', giveaway.host.toString(), false);
 
-            endedEmbed.addFields({
-              name: 'Status',
-              value: 'Ended by host',
-              inline: false
-            });
+            addFieldSafely(endedEmbed, 'Status', 'Ended by host', false);
 
             // Disable all buttons
             const disabledRow = new ActionRowBuilder().addComponents(
@@ -2265,47 +3824,85 @@ client.on('interactionCreate', async (interaction) => {
       const embed = new EmbedBuilder()
         .setTitle('🎁 Giveaway Ended!')
         .setColor(0xFF1493)
-        .setFooter({ text: 'Version 1.0.9 | Made By Atlas' });
+        .setFooter({ text: 'Version 1.1.3 | Made By Atlas' });
 
       // Winner field
-      embed.addFields({ name: 'Winner', value: `**${winner.user}**`, inline: false });
+      addFieldSafely(embed, 'Winner', `**${winner.user}**`, false);
 
       // List items with proper formatting (bold + abbrev for diamonds)
       const itemsText = giveaway.items && giveaway.items.length > 0 ? formatItemsText(giveaway.items) : 'None';
-      embed.addFields({
-        name: 'Giveaway Items',
-        value: itemsText,
-        inline: false
+      addFieldSafely(embed, 'Giveaway Items', itemsText, false);
+
+      addFieldSafely(embed, 'Total Entries', giveaway.entries.length.toString(), true);
+
+      // Create private channel for giveaway
+      const host = await interaction.guild.members.fetch(giveaway.host.id);
+      const winnerMember = await interaction.guild.members.fetch(winner.user.id);
+      const channelName = `giveaway-${giveaway.host.id}-${winner.user.id}`;
+      const createGiveawayChannel = interaction.guild.channels.cache.get('1462190673834020904');
+      const giveawayChannel = await interaction.guild.channels.create({
+        name: channelName,
+        type: 0, // text channel
+        parent: '1462173760529633383',
+        position: createGiveawayChannel ? createGiveawayChannel.position + 1 : 0,
+        permissionOverwrites: [
+          {
+            id: interaction.guild.id,
+            deny: ['ViewChannel'],
+          },
+          {
+            id: client.user.id,
+            allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'],
+          },
+          {
+            id: giveaway.host.id,
+            allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'],
+          },
+          {
+            id: winner.user.id,
+            allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'],
+          },
+        ],
       });
 
-      embed.addFields({
-        name: 'Total Entries',
-        value: giveaway.entries.length.toString(),
-        inline: true
-      });
+      // Send DMs
+      try {
+        await host.send(`🎉 Your giveaway has ended! The winner is <@${winner.user.id}>! Check the channel: ${giveawayChannel}`);
+      } catch (e) {
+        console.error('Error sending DM to host:', e);
+      }
+      try {
+        await winnerMember.send(`🎉 Congratulations! You won the giveaway hosted by <@${giveaway.host.id}>! Check the channel: ${giveawayChannel}`);
+      } catch (e) {
+        console.error('Error sending DM to winner:', e);
+      }
 
-      // Add Upload Proof Image button
+      // Send embed in the new channel
+      const proofEmbed = new EmbedBuilder()
+        .setTitle('Giveaway Proof Required')
+        .setDescription(`**Host:** <@${giveaway.host.id}>\n**Winner:** <@${winner.user.id}>\n\nPlease upload proof image of the completed giveaway.`)
+        .setColor(0xffa500)
+        .setFooter({ text: 'Version 1.1.3 | Made By Atlas' });
+
       const proofButton = new ButtonBuilder()
         .setCustomId(`upload_proof_giveaway_${Date.now()}`)
         .setLabel('Upload Proof Image')
         .setStyle(ButtonStyle.Primary);
 
-      const row = new ActionRowBuilder().addComponents(proofButton);
-
-      const channel = interaction.guild.channels.cache.get(giveaway.channelId);
-      const proofMessage = await channel.send({ embeds: [embed], components: [row] });
+      const proofMessageInChannel = await giveawayChannel.send({ embeds: [proofEmbed], components: [new ActionRowBuilder().addComponents(proofButton)] });
 
       // Store finished giveaway data for proof handler
-      finishedGiveaways.set(proofMessage.id, {
+      finishedGiveaways.set(proofMessageInChannel.id, {
         host: giveaway.host,
         winner: winner.user,
         items: giveaway.items,
         channelId: giveaway.channelId,
-        giveawayChannelId: '1462197194646880368'
+        giveawayChannelId: giveawayChannel.id
       });
 
-      // Notify winner
-      await channel.send(`🎉 Congratulations ${winner.user}! You won the giveaway!`);
+      // Notify in original channel
+      const channel = interaction.guild.channels.cache.get(giveaway.channelId);
+      await channel.send(`🎉 Giveaway ended! Winner: ${winner.user}. Check your DMs for the giveaway channel.`);
 
       // Decrement giveaway count for host
       const hostId = giveaway.host.id;
@@ -2358,6 +3955,17 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     if (interaction.customId === 'create_auction') {
+      // Check suspension
+      const suspension = checkSuspension(interaction.user.id, 'auction');
+      if (suspension) {
+        const hours = Math.floor(suspension.timeRemaining / (1000 * 60 * 60));
+        const minutes = Math.floor((suspension.timeRemaining % (1000 * 60 * 60)) / (1000 * 60));
+        return interaction.reply({ 
+          content: `❌ **Suspended from Auction Activities**\n\n**Reason:** ${suspension.reason}\n**Time Remaining:** ${hours}h ${minutes}m\n\nYou cannot create auctions during suspension.`, 
+          flags: MessageFlags.Ephemeral 
+        });
+      }
+
       const modal = new ModalBuilder()
         .setCustomId('auction_modal')
         .setTitle('Create Auction');
@@ -2396,7 +4004,52 @@ client.on('interactionCreate', async (interaction) => {
       await interaction.showModal(modal);
     }
 
+    if (interaction.customId.startsWith('admin_upload_proof_giveaway_')) {
+      const adminRoles = ['1461505505401896972', '1461481291118678087', '1461484563183435817'];
+      const hasAdminRole = interaction.member.roles.cache.some(role => adminRoles.includes(role.id));
+      if (!hasAdminRole) return sendErrorReply(interaction, 'E05');
+
+      const messageId = interaction.customId.replace('admin_upload_proof_giveaway_', '');
+      const giveawayData = finishedGiveaways.get(messageId);
+      if (!giveawayData) return sendErrorReply(interaction, 'E07', 'Giveaway not found');
+
+      // Show instruction to upload image file
+      const uploadButton = new ButtonBuilder()
+        .setCustomId(`admin_upload_proof_file_giveaway_${messageId}`)
+        .setLabel('📎 Admin Upload Image (PNG/JPG)')
+        .setStyle(ButtonStyle.Danger);
+
+      const row = new ActionRowBuilder().addComponents(uploadButton);
+
+      // Store state for admin file upload
+      interaction.user.waitingForAdminProof = {
+        giveawayMessageId: messageId,
+        type: 'giveaway',
+        channelId: giveawayData.channelId,
+        hostId: giveawayData.host.id,
+        guestId: giveawayData.winner.id,
+        timestamp: Date.now()
+      };
+
+      await interaction.reply({
+        content: '📸 **Admin Upload Proof Image**\n\nAs an admin, you can upload the proof image for this giveaway. Please send your proof image (PNG or JPG) in the next message in this channel.',
+        components: [row],
+        flags: MessageFlags.Ephemeral
+      });
+    }
+
     if (interaction.customId === 'create_trade') {
+      // Check suspension
+      const suspension = checkSuspension(interaction.user.id, 'trade');
+      if (suspension) {
+        const hours = Math.floor(suspension.timeRemaining / (1000 * 60 * 60));
+        const minutes = Math.floor((suspension.timeRemaining % (1000 * 60 * 60)) / (1000 * 60));
+        return interaction.reply({ 
+          content: `❌ **Suspended from Trade Activities**\n\n**Reason:** ${suspension.reason}\n**Time Remaining:** ${hours}h ${minutes}m\n\nYou cannot create trades during suspension.`, 
+          flags: MessageFlags.Ephemeral 
+        });
+      }
+
       // Check trade limit
       const specialRoleId = '1461534174589485197';
       const adminRoles = ['1461505505401896972', '1461481291118678087', '1461484563183435817'];
@@ -2459,6 +4112,17 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     if (interaction.customId === 'create_giveaway') {
+      // Check suspension
+      const suspension = checkSuspension(interaction.user.id, 'giveaway');
+      if (suspension) {
+        const hours = Math.floor(suspension.timeRemaining / (1000 * 60 * 60));
+        const minutes = Math.floor((suspension.timeRemaining % (1000 * 60 * 60)) / (1000 * 60));
+        return interaction.reply({ 
+          content: `❌ **Suspended from Giveaway Activities**\n\n**Reason:** ${suspension.reason}\n**Time Remaining:** ${hours}h ${minutes}m\n\nYou cannot create giveaways during suspension.`, 
+          flags: MessageFlags.Ephemeral 
+        });
+      }
+
       // Check if user has the required role to create giveaway
       const giveawayCreatorRoleId = '1461798386201006324';
       const specialRoleId = '1461534174589485197';
@@ -2478,10 +4142,7 @@ client.on('interactionCreate', async (interaction) => {
       const maxGiveaways = isAdmin ? Infinity : (hasSpecialRole ? 3 : 1);
       
       if (currentGiveaways >= maxGiveaways) {
-        return interaction.reply({ 
-          content: `You have reached the maximum number of simultaneous giveaways (${maxGiveaways}).`, 
-          flags: MessageFlags.Ephemeral 
-        });
+        return sendErrorReply(interaction, 'E83', `You have reached the maximum number of simultaneous giveaways (${maxGiveaways}).`);
       }
 
       // Initialize giveaway items for this user
@@ -2506,6 +4167,17 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     if (interaction.customId === 'trade_offer_button') {
+      // Check suspension
+      const suspension = checkSuspension(interaction.user.id, 'trade');
+      if (suspension) {
+        const hours = Math.floor(suspension.timeRemaining / (1000 * 60 * 60));
+        const minutes = Math.floor((suspension.timeRemaining % (1000 * 60 * 60)) / (1000 * 60));
+        return interaction.reply({ 
+          content: `❌ **Suspended from Trade Activities**\n\n**Reason:** ${suspension.reason}\n**Time Remaining:** ${hours}h ${minutes}m\n\nYou cannot make offers on trades during suspension.`, 
+          flags: MessageFlags.Ephemeral 
+        });
+      }
+
       const trade = trades.get(interaction.message.id);
       if (!trade) return sendErrorReply(interaction, 'E07', 'Trade not found');
 
@@ -2532,41 +4204,208 @@ client.on('interactionCreate', async (interaction) => {
       await interaction.reply({ content: 'Select an item category for your offer:', components: [row], flags: 64 });
     }
 
-    if (interaction.customId.startsWith('trade_accept_')) {
-      const messageId = interaction.customId.replace('trade_accept_', '');
-      const trade = trades.get(messageId);
-      if (!trade) return sendErrorReply(interaction, 'E07', 'Trade not found');
-      if (trade.host.id !== interaction.user.id) return sendErrorReply(interaction, 'E03');
+    if (interaction.customId.startsWith('trade_view_offers_')) {
+      try {
+        const parts = interaction.customId.replace('trade_view_offers_', '').split('_');
+        const messageId = parts[0];
+        const page = parseInt(parts[1]) || 1;
+        const trade = trades.get(messageId);
+        if (!trade) return sendErrorReply(interaction, 'E07', 'Trade not found');
+        if (trade.host.id !== interaction.user.id) return sendErrorReply(interaction, 'E03');
 
-      // Accept the last offer
-      const lastOffer = trade.offers[trade.offers.length - 1];
-      trade.accepted = true;
-      trade.acceptedUser = lastOffer.user;
+        const offersPerPage = 5;
+        const totalPages = Math.ceil(trade.offers.length / offersPerPage);
+        const validPage = Math.max(1, Math.min(page, totalPages));
+        const start = (validPage - 1) * offersPerPage;
+        const end = start + offersPerPage;
+        const pageOffers = trade.offers.slice(start, end);
 
-      // Update embed and ping both users
-      await updateTradeEmbed(interaction.guild, trade, messageId);
-      const channel = interaction.guild.channels.cache.get(trade.channelId);
-      await channel.send(`✅ Trade accepted! <@${trade.host.id}> and <@${lastOffer.user.id}>, your trade has been accepted.`);
+        // Create embed showing offers for this page
+        const embed = new EmbedBuilder()
+          .setTitle('Trade Offers')
+          .setDescription(`Select an offer to accept or decline. Page ${validPage}/${totalPages}`)
+          .setColor(0x0099ff)
+          .setFooter({ text: 'Version 1.1.3 | Made By Atlas' })
+          .setThumbnail('https://media.discordapp.net/attachments/1461378333278470259/1461514275976773674/B2087062-9645-47D0-8918-A19815D8E6D8.png?ex=696ad4bd&is=6969833d&hm=2f262b12ac860c8d92f40789893fda4f1ea6289bc5eb114c211950700eb69a79&=&format=webp&quality=lossless&width=1376&height=917');
 
-      await interaction.reply({ content: 'Trade accepted!', flags: MessageFlags.Ephemeral });
+        const components = [];
+        pageOffers.forEach((offer, index) => {
+          const globalIndex = start + index;
+          const offerText = `${offer.user.username}${offer.diamonds > 0 ? ` (+ ${formatBid(offer.diamonds)} 💎)` : ''}\n${formatItemsText(offer.items)}`;
+          addFieldSafely(embed, `Offer ${globalIndex + 1} by ${offer.user.username}`, offerText, false);
+
+          const acceptButton = new ButtonBuilder()
+            .setCustomId(`trade_accept_offer_${messageId}_${globalIndex}`)
+            .setLabel(`Accept Offer ${globalIndex + 1}`)
+            .setStyle(ButtonStyle.Success);
+
+          const declineButton = new ButtonBuilder()
+            .setCustomId(`trade_decline_offer_${messageId}_${globalIndex}`)
+            .setLabel(`Decline Offer ${globalIndex + 1}`)
+            .setStyle(ButtonStyle.Danger);
+
+          components.push(new ActionRowBuilder().addComponents(acceptButton, declineButton));
+        });
+
+        // Add pagination buttons if needed
+        if (totalPages > 1) {
+          const prevButton = new ButtonBuilder()
+            .setCustomId(`trade_view_offers_${messageId}_${validPage - 1}`)
+            .setLabel('Previous')
+            .setStyle(ButtonStyle.Secondary)
+            .setDisabled(validPage === 1);
+
+          const nextButton = new ButtonBuilder()
+            .setCustomId(`trade_view_offers_${messageId}_${validPage + 1}`)
+            .setLabel('Next')
+            .setStyle(ButtonStyle.Secondary)
+            .setDisabled(validPage === totalPages);
+
+          components.push(new ActionRowBuilder().addComponents(prevButton, nextButton));
+        }
+
+        await interaction.reply({ embeds: [embed], components, flags: MessageFlags.Ephemeral });
+      } catch (error) {
+        console.error('Error displaying trade offers:', error);
+        await sendErrorReply(interaction, 'E99', 'An error occurred while loading offers. Please try again.');
+      }
     }
 
-    if (interaction.customId.startsWith('trade_decline_')) {
-      const messageId = interaction.customId.replace('trade_decline_', '');
+    if (interaction.customId.startsWith('trade_accept_offer_')) {
+      try {
+      // Check suspension
+      const suspension = checkSuspension(interaction.user.id, 'trade');
+      if (suspension) {
+        const hours = Math.floor(suspension.timeRemaining / (1000 * 60 * 60));
+        const minutes = Math.floor((suspension.timeRemaining % (1000 * 60 * 60)) / (1000 * 60));
+        return interaction.reply({ 
+          content: `❌ **Suspended from Trade Activities**\n\n**Reason:** ${suspension.reason}\n**Time Remaining:** ${hours}h ${minutes}m\n\nYou cannot accept trades during suspension.`, 
+          flags: MessageFlags.Ephemeral 
+        });
+      }
+
+      const parts = interaction.customId.replace('trade_accept_offer_', '').split('_');
+      const messageId = parts[0];
+      const offerIndex = parseInt(parts[1]);
       const trade = trades.get(messageId);
       if (!trade) return sendErrorReply(interaction, 'E07', 'Trade not found');
+      if (trade.accepted) return sendErrorReply(interaction, 'E64', 'This trade has already been accepted');
       if (trade.host.id !== interaction.user.id) return sendErrorReply(interaction, 'E03');
+      if (offerIndex < 0 || offerIndex >= trade.offers.length) return sendErrorReply(interaction, 'E09', 'Invalid offer');
 
-      // Decline the last offer
-      const lastOffer = trade.offers[trade.offers.length - 1];
-      trade.offers.pop();
+      const acceptedOffer = trade.offers[offerIndex];
+      trade.accepted = true;
+      trade.acceptedUser = acceptedOffer.user;
+
+      // Create private channel for trade
+      const host = await interaction.guild.members.fetch(trade.host.id);
+      const guest = await interaction.guild.members.fetch(acceptedOffer.user.id);
+      const channelName = `trade-${trade.host.id}-${acceptedOffer.user.id}`;
+      const createTradeChannel = interaction.guild.channels.cache.get('1461777388927979692');
+      const tradeChannel = await interaction.guild.channels.create({
+        name: channelName,
+        type: 0, // text channel
+        parent: '1461777463821729845',
+        position: createTradeChannel ? createTradeChannel.position + 1 : 0,
+        permissionOverwrites: [
+          {
+            id: interaction.guild.id,
+            deny: ['ViewChannel'],
+          },
+          {
+            id: client.user.id,
+            allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'],
+          },
+          {
+            id: trade.host.id,
+            allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'],
+          },
+          {
+            id: acceptedOffer.user.id,
+            allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'],
+          },
+        ],
+      });
+
+      // Send DMs
+      try {
+        await host.send(`✅ Your trade offer has been accepted by <@${acceptedOffer.user.id}>! Check the channel: ${tradeChannel}`);
+      } catch (e) {
+        console.error('Error sending DM to host:', e);
+      }
+      try {
+        await guest.send(`✅ Your trade offer has been accepted by <@${trade.host.id}>! Check the channel: ${tradeChannel}`);
+      } catch (e) {
+        console.error('Error sending DM to guest:', e);
+      }
+
+      // Send embed in the new channel
+      const proofEmbed = new EmbedBuilder()
+        .setTitle('Trade Proof Required')
+        .setDescription(`**Host:** <@${trade.host.id}>\n**Guest:** <@${acceptedOffer.user.id}>\n\nPlease upload proof image of the completed trade.`)
+        .setColor(0xffa500)
+        .setFooter({ text: 'Version 1.1.3 | Made By Atlas' });
+
+      const proofButton = new ButtonBuilder()
+        .setCustomId(`upload_proof_trade_${messageId}`)
+        .setLabel('Upload Proof Image')
+        .setStyle(ButtonStyle.Primary);
+
+      await tradeChannel.send({ embeds: [proofEmbed], components: [new ActionRowBuilder().addComponents(proofButton)] });
 
       // Update embed
       await updateTradeEmbed(interaction.guild, trade, messageId);
-      const channel = interaction.guild.channels.cache.get(trade.channelId);
-      await channel.send(`❌ Trade offer from <@${lastOffer.user.id}> has been declined.`);
+
+      await interaction.reply({ content: 'Trade accepted!', flags: MessageFlags.Ephemeral });
+      } catch (error) {
+        console.error('Error accepting trade offer:', error);
+        await sendErrorReply(interaction, 'E99', 'An error occurred while accepting the offer. Please try again.');
+      }
+    }
+
+    if (interaction.customId.startsWith('trade_decline_offer_')) {
+      try {
+      // Check suspension
+      const suspension = checkSuspension(interaction.user.id, 'trade');
+      if (suspension) {
+        const hours = Math.floor(suspension.timeRemaining / (1000 * 60 * 60));
+        const minutes = Math.floor((suspension.timeRemaining % (1000 * 60 * 60)) / (1000 * 60));
+        return interaction.reply({ 
+          content: `❌ **Suspended from Trade Activities**\n\n**Reason:** ${suspension.reason}\n**Time Remaining:** ${hours}h ${minutes}m\n\nYou cannot decline trades during suspension.`, 
+          flags: MessageFlags.Ephemeral 
+        });
+      }
+
+      const parts = interaction.customId.replace('trade_decline_offer_', '').split('_');
+      const messageId = parts[0];
+      const offerIndex = parseInt(parts[1]);
+      const trade = trades.get(messageId);
+      if (!trade) return sendErrorReply(interaction, 'E07', 'Trade not found');
+      if (trade.accepted) return sendErrorReply(interaction, 'E65', 'Cannot decline offers after the trade has been accepted');
+      if (trade.host.id !== interaction.user.id) return sendErrorReply(interaction, 'E03');
+      if (offerIndex < 0 || offerIndex >= trade.offers.length) return sendErrorReply(interaction, 'E09', 'Invalid offer');
+
+      const declinedOffer = trade.offers[offerIndex];
+
+      // Send DM to declined user
+      try {
+        const declinedUser = await interaction.guild.members.fetch(declinedOffer.user.id);
+        await declinedUser.send(`❌ Your trade offer for the trade hosted by <@${trade.host.id}> has been declined.`);
+      } catch (e) {
+        console.error('Error sending DM to declined user:', e);
+      }
+
+      // Remove the offer
+      trade.offers.splice(offerIndex, 1);
+
+      // Update embed
+      await updateTradeEmbed(interaction.guild, trade, messageId);
 
       await interaction.reply({ content: 'Offer declined!', flags: MessageFlags.Ephemeral });
+      } catch (error) {
+        console.error('Error declining trade offer:', error);
+        await sendErrorReply(interaction, 'E99', 'An error occurred while declining the offer. Please try again.');
+      }
     }
 
     if (interaction.customId.startsWith('trade_delete_')) {
@@ -2604,87 +4443,290 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     if (interaction.customId.startsWith('upload_proof_trade_')) {
-      const messageId = interaction.customId.replace('upload_proof_trade_', '');
-      const trade = trades.get(messageId);
-      if (!trade) return sendErrorReply(interaction, 'E07', 'Trade not found');
+      try {
+        const messageId = interaction.customId.replace('upload_proof_trade_', '');
+        const trade = trades.get(messageId);
+        if (!trade) return sendErrorReply(interaction, 'E07', 'Trade not found');
 
-      // Check if user is host or accepted user
-      if (trade.host.id !== interaction.user.id && trade.acceptedUser.id !== interaction.user.id) {
-        return sendErrorReply(interaction, 'E02');
+        // Check if user is host or accepted user
+        if (trade.host.id !== interaction.user.id && trade.acceptedUser.id !== interaction.user.id) {
+          return sendErrorReply(interaction, 'E02');
+        }
+
+        // Defer update first (must be within 3 seconds)
+        try {
+          await interaction.deferUpdate();
+        } catch (deferError) {
+          console.warn('[WARN] Defer update failed (interaction may have expired):', deferError.message);
+        }
+
+        // Store state for file upload
+        waitingForProofUploads.set(interaction.user.id, {
+          tradeMessageId: messageId,
+          type: 'trade',
+          channelId: trade.channelId,
+          privateChannelId: interaction.channelId,
+          hostId: trade.host.id,
+          guestId: trade.acceptedUser.id,
+          timestamp: Date.now()
+        });
+        console.log('Set waitingForProof for user:', interaction.user.id, waitingForProofUploads.get(interaction.user.id));
+
+        // Try to send followup if deferUpdate succeeded
+        try {
+          await interaction.followUp({
+            content: '📸 **Upload Proof Image**\n\nPlease send your proof image (PNG or JPG) in the next message in this channel. The image will be automatically captured and linked to your trade.',
+            flags: 64
+          });
+        } catch (followupError) {
+          console.warn('[WARN] Follow-up message failed:', followupError.message);
+        }
+
+        // Start timeout system
+        startProofUploadTimeout(messageId, interaction.guild, {
+          type: 'trade',
+          hostId: trade.host.id,
+          guestId: trade.acceptedUser.id,
+          channelId: interaction.channelId
+        });
+      } catch (error) {
+        console.error('[ERROR] Error in upload_proof_trade handler:', error);
       }
-
-      // Show modal for image description
-      const modal = new ModalBuilder()
-        .setCustomId(`proof_image_modal_trade_${messageId}`)
-        .setTitle('Upload Proof Image');
-
-      const descriptionInput = new TextInputBuilder()
-        .setCustomId('proof_description')
-        .setLabel('Description (optional)')
-        .setStyle(TextInputStyle.Paragraph)
-        .setPlaceholder('Add any notes about this trade...')
-        .setRequired(false);
-
-      const row = new ActionRowBuilder().addComponents(descriptionInput);
-      modal.addComponents(row);
-
-      await interaction.showModal(modal);
     }
 
     if (interaction.customId.startsWith('upload_proof_auction_')) {
-      // Show modal for image description
-      const modal = new ModalBuilder()
-        .setCustomId('proof_image_modal_auction')
-        .setTitle('Upload Proof Image');
+      try {
+        // Get auction data for tracking
+        const messageId = interaction.message?.id;
+        const auctionData = finishedAuctions.get(messageId);
+        const hostId = auctionData?.host?.id || null;
+        const winnerId = auctionData?.winner?.split('<@')[1]?.split('>')[0] || null;
 
-      const descriptionInput = new TextInputBuilder()
-        .setCustomId('proof_description')
-        .setLabel('Description (optional)')
-        .setStyle(TextInputStyle.Paragraph)
-        .setPlaceholder('Add any notes about this auction...')
-        .setRequired(false);
+        // Defer update first (must be within 3 seconds)
+        try {
+          await interaction.deferUpdate();
+        } catch (deferError) {
+          console.warn('[WARN] Defer update failed (interaction may have expired):', deferError.message);
+        }
 
-      const row = new ActionRowBuilder().addComponents(descriptionInput);
-      modal.addComponents(row);
+        // Store state for file upload
+        waitingForProofUploads.set(interaction.user.id, {
+          auctionProofMessageId: messageId || null,
+          type: 'auction',
+          privateChannelId: interaction.channelId,
+          hostId: hostId,
+          guestId: winnerId,
+          timestamp: Date.now()
+        });
 
-      await interaction.showModal(modal);
+        // Try to send followup if deferUpdate succeeded
+        try {
+          await interaction.followUp({
+            content: '📸 **Upload Proof Image**\n\nPlease send your proof image (PNG or JPG) in the next message in this channel. The image will be automatically captured and linked to your auction.',
+            flags: 64
+          });
+        } catch (followupError) {
+          console.warn('[WARN] Follow-up message failed:', followupError.message);
+        }
+
+        // Start timeout system
+        if (messageId && hostId && winnerId) {
+          startProofUploadTimeout(messageId, interaction.guild, {
+            type: 'auction',
+            hostId: hostId,
+            guestId: winnerId,
+            channelId: interaction.channelId
+          });
+        }
+      } catch (error) {
+        console.error('[ERROR] Error in upload_proof_auction handler:', error);
+      }
     }
 
     if (interaction.customId.startsWith('upload_proof_giveaway_')) {
-      // Get giveaway data
-      const messageId = interaction.message.id;
-      const giveawayData = finishedGiveaways.get(messageId);
-      if (!giveawayData) return sendErrorReply(interaction, 'E36', 'Giveaway not found');
+      try {
+        // Get giveaway data
+        const messageId = interaction.message.id;
+        const giveawayData = finishedGiveaways.get(messageId);
+        if (!giveawayData) return sendErrorReply(interaction, 'E36', 'Giveaway not found');
 
-      // Check if user is host or winner
-      if (giveawayData.host.id !== interaction.user.id && giveawayData.winner.id !== interaction.user.id) {
-        return sendErrorReply(interaction, 'E02');
+        // Check if user is host or winner
+        if (giveawayData.host.id !== interaction.user.id && giveawayData.winner.id !== interaction.user.id) {
+          return sendErrorReply(interaction, 'E02');
+        }
+
+        // Defer update first (must be within 3 seconds)
+        try {
+          await interaction.deferUpdate();
+        } catch (deferError) {
+          console.warn('[WARN] Defer update failed (interaction may have expired):', deferError.message);
+        }
+
+        // Store state for file upload
+        waitingForProofUploads.set(interaction.user.id, {
+          giveawayProofMessageId: messageId,
+          type: 'giveaway',
+          channelId: giveawayData.channelId,
+          privateChannelId: interaction.channelId,
+          hostId: giveawayData.host.id,
+          guestId: giveawayData.winner.id,
+          timestamp: Date.now()
+        });
+
+        // Try to send followup if deferUpdate succeeded
+        try {
+          await interaction.followUp({
+            content: '📸 **Upload Proof Image**\n\nPlease send your proof image (PNG or JPG) in the next message in this channel. The image will be automatically captured and linked to your giveaway.',
+            flags: 64
+          });
+        } catch (followupError) {
+          console.warn('[WARN] Follow-up message failed:', followupError.message);
+        }
+
+        // Start timeout system
+        startProofUploadTimeout(messageId, interaction.guild, {
+          type: 'giveaway',
+          hostId: giveawayData.host.id,
+          guestId: giveawayData.winner.id,
+          channelId: interaction.channelId
+        });
+      } catch (error) {
+        console.error('[ERROR] Error in upload_proof_giveaway handler:', error);
       }
+    }
 
-      // Show modal for image URL
-      const modal = new ModalBuilder()
-        .setCustomId(`proof_image_modal_giveaway_${messageId}`)
-        .setTitle('Upload Proof Image');
+    if (interaction.customId.startsWith('delete_channel_')) {
+      const channelId = interaction.customId.replace('delete_channel_', '');
+      const channel = interaction.guild.channels.cache.get(channelId);
+      if (!channel) return sendErrorReply(interaction, 'E52', 'Channel not found');
 
-      const imageUrlInput = new TextInputBuilder()
-        .setCustomId('proof_image_url')
-        .setLabel('Image URL')
-        .setStyle(TextInputStyle.Short)
-        .setPlaceholder('https://imgur.com/...')
-        .setRequired(true);
+      // Check if user is in the channel
+      if (!channel.members.has(interaction.user.id)) return sendErrorReply(interaction, 'E02', 'You are not authorized to delete this channel');
 
-      const descriptionInput = new TextInputBuilder()
-        .setCustomId('proof_description')
-        .setLabel('Description (optional)')
-        .setStyle(TextInputStyle.Paragraph)
-        .setPlaceholder('Add any notes about this giveaway...')
-        .setRequired(false);
+      await interaction.deferUpdate();
 
-      const row1 = new ActionRowBuilder().addComponents(imageUrlInput);
-      const row2 = new ActionRowBuilder().addComponents(descriptionInput);
-      modal.addComponents(row1, row2);
+      let countdown = 5;
+      const updateButton = async () => {
+        const deleteButton = new ButtonBuilder()
+          .setCustomId(`delete_channel_${channelId}`)
+          .setLabel(`Deleting channel in ${countdown}...`)
+          .setStyle(ButtonStyle.Danger)
+          .setDisabled(true);
 
-      await interaction.showModal(modal);
+        const row = new ActionRowBuilder().addComponents(deleteButton);
+        await interaction.message.edit({ embeds: interaction.message.embeds, components: [row] });
+      };
+
+      await updateButton();
+
+      const interval = setInterval(async () => {
+        countdown--;
+        if (countdown > 0) {
+          try {
+            await updateButton();
+          } catch (e) {
+            clearInterval(interval);
+          }
+        } else {
+          clearInterval(interval);
+          try {
+            await channel.delete();
+          } catch (e) {
+            console.error('Error deleting channel:', e);
+          }
+        }
+      }, 1000);
+    }
+
+    if (interaction.customId.startsWith('admin_upload_proof_trade_')) {
+      const adminRoles = ['1461505505401896972', '1461481291118678087', '1461484563183435817'];
+      const hasAdminRole = interaction.member.roles.cache.some(role => adminRoles.includes(role.id));
+      if (!hasAdminRole) return sendErrorReply(interaction, 'E05');
+
+      const messageId = interaction.customId.replace('admin_upload_proof_trade_', '');
+      const trade = trades.get(messageId);
+      if (!trade) return sendErrorReply(interaction, 'E07', 'Trade not found');
+
+      // Show instruction to upload image file
+      const uploadButton = new ButtonBuilder()
+        .setCustomId(`admin_upload_proof_file_trade_${messageId}`)
+        .setLabel('📎 Admin Upload Image (PNG/JPG)')
+        .setStyle(ButtonStyle.Danger);
+
+      const row = new ActionRowBuilder().addComponents(uploadButton);
+
+      // Store state for admin file upload
+      interaction.user.waitingForAdminProof = {
+        tradeMessageId: messageId,
+        type: 'trade',
+        channelId: trade.channelId,
+        hostId: trade.host.id,
+        guestId: trade.acceptedUser.id,
+        timestamp: Date.now()
+      };
+
+      await interaction.reply({
+        content: '📸 **Admin Upload Proof Image**\n\nAs an admin, you can upload the proof image for this trade. Please send your proof image (PNG or JPG) in the next message in this channel.',
+        components: [row],
+        flags: MessageFlags.Ephemeral
+      });
+    }
+
+    if (interaction.customId.startsWith('admin_upload_proof_auction_')) {
+      const adminRoles = ['1461505505401896972', '1461481291118678087', '1461484563183435817'];
+      const hasAdminRole = interaction.member.roles.cache.some(role => adminRoles.includes(role.id));
+      if (!hasAdminRole) return sendErrorReply(interaction, 'E05');
+
+      const messageId = interaction.customId.replace('admin_upload_proof_auction_', '');
+      const auctionData = finishedAuctions.get(messageId);
+      if (!auctionData) return sendErrorReply(interaction, 'E07', 'Auction not found');
+
+      // Show instruction to upload image file
+      const uploadButton = new ButtonBuilder()
+        .setCustomId(`admin_upload_proof_file_auction_${messageId}`)
+        .setLabel('📎 Admin Upload Image (PNG/JPG)')
+        .setStyle(ButtonStyle.Danger);
+
+      const row = new ActionRowBuilder().addComponents(uploadButton);
+
+      // Store state for admin file upload
+      interaction.user.waitingForAdminProof = {
+        auctionMessageId: messageId,
+        type: 'auction',
+        channelId: auctionData.channelId,
+        hostId: auctionData.host.id,
+        guestId: auctionData.winner.split('<@')[1]?.split('>')[0] || null,
+        timestamp: Date.now()
+      };
+
+      await interaction.reply({
+        content: '📸 **Admin Upload Proof Image**\n\nAs an admin, you can upload the proof image for this auction. Please send your proof image (PNG or JPG) in the next message in this channel.',
+        components: [row],
+        flags: MessageFlags.Ephemeral
+      });
+    }
+
+    if (interaction.customId.startsWith('remove_suspension_')) {
+      const adminRoles = ['1461505505401896972', '1461481291118678087', '1461484563183435817'];
+      const hasAdminRole = interaction.member.roles.cache.some(role => adminRoles.includes(role.id));
+      if (!hasAdminRole) return sendErrorReply(interaction, 'E05');
+
+      const targetUserId = interaction.customId.replace('remove_suspension_', '');
+      
+      const success = await manualSuspensionRemoval(interaction.guild, targetUserId, interaction.user.id);
+      
+      if (success) {
+        await interaction.reply({ 
+          content: `✅ Suspension manually removed for <@${targetUserId}> by ${interaction.user}.`, 
+          flags: MessageFlags.Ephemeral 
+        });
+        botLogs.addLog('ADMIN_ACTION', 'Admin manually removed user suspension', interaction.user.id, { targetUserId });
+      } else {
+        await interaction.reply({ 
+          content: `❌ Failed to remove suspension for <@${targetUserId}>. User may not be suspended.`, 
+          flags: MessageFlags.Ephemeral 
+        });
+      }
     }
 
     if (interaction.customId === 'inventory_update_button') {
@@ -2710,6 +4752,78 @@ client.on('interactionCreate', async (interaction) => {
 
       const row = new ActionRowBuilder().addComponents(categorySelect);
       await interaction.reply({ content: 'Select an item category to add to your inventory:', components: [row], flags: MessageFlags.Ephemeral });
+    }
+
+    if (interaction.customId.startsWith('inventory_page_prev_') || interaction.customId.startsWith('inventory_page_next_')) {
+      const messageId = interaction.message.id;
+      const inventoryUserId = interaction.message.mentions.users.first()?.id || interaction.user.id;
+      const inventory = inventories.get(inventoryUserId);
+      
+      if (!inventory || !inventory.items) {
+        await interaction.reply({ content: 'Inventory not found.', flags: MessageFlags.Ephemeral });
+        return;
+      }
+
+      const currentPage = inventory.currentPage || 1;
+      const itemsPerPage = inventory.itemsPerPage || 10;
+      const totalPages = Math.ceil(inventory.items.length / itemsPerPage);
+      let newPage = currentPage;
+
+      if (interaction.customId.startsWith('inventory_page_prev_') && currentPage > 1) newPage--;
+      if (interaction.customId.startsWith('inventory_page_next_') && currentPage < totalPages) newPage++;
+
+      inventory.currentPage = newPage;
+      inventories.set(inventoryUserId, inventory);
+
+      // Get paginated items
+      const paginationData = paginateTradeItems(inventory.items, newPage, itemsPerPage);
+
+      // Recreate inventory embed
+      const embed = new EmbedBuilder()
+        .setTitle('🎯 Inventory')
+        .setColor(0x00b0f4);
+
+      const avatarUrl = interaction.user.displayAvatarURL({ format: 'webp', size: 1024 });
+      embed.setAuthor({ name: interaction.user.displayName || interaction.user.username, iconURL: avatarUrl });
+
+      const inventoryItemsField = totalPages > 1 
+        ? `${paginationData.text}\\n\\n*Page ${newPage}/${totalPages}*`
+        : paginationData.text;
+
+      addFieldSafely(embed,
+        `Items${inventory.diamonds > 0 ? ` + ${formatBid(inventory.diamonds)} 💎` : 'None'}`,
+        inventoryItemsField,
+        false
+      );
+
+      if (inventory.lookingFor) {
+        addFieldSafely(embed, 'Looking For', inventory.lookingFor, true);
+      }
+
+      // Update pagination buttons
+      const updateButton = new ButtonBuilder()
+        .setCustomId('inventory_update_button')
+        .setLabel('Update Inventory')
+        .setStyle(ButtonStyle.Primary);
+
+      const deleteButton = new ButtonBuilder()
+        .setCustomId('inventory_delete_button')
+        .setLabel('Delete Items')
+        .setStyle(ButtonStyle.Danger);
+
+      const row = new ActionRowBuilder().addComponents(updateButton, deleteButton);
+      const components = [row];
+
+      if (totalPages > 1) {
+        const paginationRow = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId(`inventory_page_prev_${messageId}`).setLabel('Previous').setStyle(ButtonStyle.Secondary).setDisabled(newPage === 1),
+          new ButtonBuilder().setCustomId(`inventory_page_next_${messageId}`).setLabel('Next').setStyle(ButtonStyle.Secondary).setDisabled(newPage === totalPages)
+        );
+        components.push(paginationRow);
+      }
+
+      await interaction.update({ embeds: [embed], components });
+      return;
     }
 
     if (interaction.customId === 'inventory_delete_button') {
@@ -2753,9 +4867,9 @@ client.on('interactionCreate', async (interaction) => {
       });
 
       if (inventory.items.length === 0) {
-        interaction.reply({ content: 'All items deleted from your inventory!', flags: MessageFlags.Ephemeral });
+        await interaction.reply({ content: 'All items deleted from your inventory!', flags: MessageFlags.Ephemeral });
       } else {
-        interaction.reply({ content: `${indicesToDelete.length} item(s) deleted from your inventory!`, flags: MessageFlags.Ephemeral });
+        await interaction.reply({ content: `${indicesToDelete.length} item(s) deleted from your inventory!`, flags: MessageFlags.Ephemeral });
       }
     }
   }
@@ -2800,39 +4914,20 @@ client.on('interactionCreate', async (interaction) => {
         items = itemCategories[category];
       }
       
-      // Para outras categorias - paginar se necessário (max 25 options por select menu)
-      if (items.length > 25) {
-        const pages = paginateSelectMenuItems(items, 25);
-        const rows = [];
-        
-        for (const page of pages) {
-          const itemSelect = new StringSelectMenuBuilder()
-            .setCustomId(`trade_item_select_${category}_page${page.page}`)
-            .setPlaceholder(`Select items from ${category} (Page ${page.page}/${page.totalPages})`)
-            .setMaxValues(Math.min(page.items.length, 100))
-            .addOptions(page.items.map(item => ({ 
-              label: formatItemName(item), 
-              value: item,
-              emoji: getItemEmoji(item)
-            })));
-          rows.push(new ActionRowBuilder().addComponents(itemSelect));
-        }
-        
-        await interaction.reply({ content: `Select items from **${category}** category (${items.length} total items, split into pages):`, components: rows, flags: 64 });
-      } else {
-        const itemSelect = new StringSelectMenuBuilder()
-          .setCustomId(`trade_item_select_${category}`)
-          .setPlaceholder(`Select items from ${category}`)
-          .setMaxValues(Math.min(items.length, 100))
-          .addOptions(items.map(item => ({ 
-            label: formatItemName(item), 
-            value: item,
-            emoji: getItemEmoji(item)
-          })));
+      // Para outras categorias
+      const itemSelect = new StringSelectMenuBuilder()
+        .setCustomId(`trade_item_select_${category}`)
+        .setPlaceholder(`Select items from ${category}`)
+        .setMaxValues(Math.min(items.length, 25))
+        .addOptions(items.slice(0, 25).map(item => ({ 
+          label: formatItemName(item), 
+          value: item,
+          emoji: getItemEmoji(item)
+        })));
 
-        const row = new ActionRowBuilder().addComponents(itemSelect);
-        await interaction.reply({ content: `Select items from **${category}** category:`, components: [row], flags: 64 });
-      }
+      const row = new ActionRowBuilder().addComponents(itemSelect);
+      const displayText = items.length > 25 ? `Select items from **${category}** category (showing 25 of ${items.length}):` : `Select items from **${category}** category:`;
+      await interaction.reply({ content: displayText, components: [row], flags: 64 });
     }
 
     if (interaction.customId === 'trade_huge_subcategory_select') {
@@ -2840,90 +4935,37 @@ client.on('interactionCreate', async (interaction) => {
       const { StringSelectMenuBuilder } = require('discord.js');
       
       const items = itemCategories.huges[subcategory];
-      
-      // Paginar se necessário (max 25 options por select menu)
-      if (items.length > 25) {
-        const pages = paginateSelectMenuItems(items, 25);
-        const rows = [];
-        
-        for (const page of pages) {
-          const itemSelect = new StringSelectMenuBuilder()
-            .setCustomId(`trade_item_select_huges_${subcategory}_page${page.page}`)
-            .setPlaceholder(`Select ${subcategory} (Page ${page.page}/${page.totalPages})`)
-            .setMaxValues(Math.min(page.items.length, 100))
-            .addOptions(page.items.map(item => ({ 
-              label: formatItemName(item), 
-              value: item,
-              emoji: getItemEmoji(item)
-            })));
-          rows.push(new ActionRowBuilder().addComponents(itemSelect));
-        }
-        
-        await interaction.reply({ content: `Select items from **${subcategory}** (${items.length} total items):`, components: rows, flags: 64 });
-      } else {
-        const itemSelect = new StringSelectMenuBuilder()
-          .setCustomId(`trade_item_select_huges_${subcategory}`)
-          .setPlaceholder(`Select items from ${subcategory}`)
-          .setMaxValues(Math.min(items.length, 100))
-          .addOptions(items.map(item => ({ 
-            label: formatItemName(item), 
-            value: item,
-            emoji: getItemEmoji(item)
-          })));
+      const maxOptions = Math.min(items.length, 25);
+      const itemsToShow = items.slice(0, maxOptions);
+      const itemSelect = new StringSelectMenuBuilder()
+        .setCustomId(`trade_item_select_huges_${subcategory}`)
+        .setPlaceholder(`Select items from ${subcategory}`)
+        .setMaxValues(maxOptions)
+        .addOptions(itemsToShow.map(item => ({ 
+          label: formatItemName(item), 
+          value: item,
+          emoji: getItemEmoji(item)
+        })));
 
-        const row = new ActionRowBuilder().addComponents(itemSelect);
-        await interaction.reply({ content: `Select items from **${subcategory}**:`, components: [row], flags: 64 });
-      }
+      const row = new ActionRowBuilder().addComponents(itemSelect);
+      await interaction.reply({ content: `Select items from **${subcategory}**:`, components: [row], flags: 64 });
     }
 
     if (interaction.customId.startsWith('trade_item_select_')) {
       const parts = interaction.customId.replace('trade_item_select_', '').split('_');
       let category = parts[0];
-      let subcategory = null;
-      let isPagedSelect = false;
-      
-      // Detectar se é uma página de seleção com paginação
-      const pageMatch = interaction.customId.match(/page(\d+)$/);
-      if (pageMatch) {
-        isPagedSelect = true;
-        // Re-parse para encontrar a subcategoria corretamente
-        const withoutPage = interaction.customId.replace(/_page\d+$/, '').replace('trade_item_select_', '');
-        const subparts = withoutPage.split('_');
-        if (withoutPage.startsWith('huges_')) {
-          category = 'huges';
-          subcategory = subparts.slice(1).join('_');
-        } else {
-          category = subparts[0];
-          subcategory = subparts.length > 1 ? subparts.slice(1).join('_') : null;
-        }
-      } else {
-        // Parse normal
-        if (parts.length > 1 && parts[0] === 'huges') {
-          category = 'huges';
-          subcategory = parts.slice(1).join('_');
-        } else {
-          subcategory = parts.length > 1 ? parts.slice(1).join('_') : null;
-        }
-      }
+      let subcategory = parts.length > 1 ? parts.slice(1).join('_') : null;
       
       const selectedItems = interaction.values;
 
-      // Se for paginado, acumular seleções
-      if (isPagedSelect) {
-        if (!interaction.user.selectedTradeItems) {
-          interaction.user.selectedTradeItems = [];
-        }
-        // Adicionar novos itens (evitar duplicatas)
-        selectedItems.forEach(item => {
-          if (!interaction.user.selectedTradeItems.includes(item)) {
-            interaction.user.selectedTradeItems.push(item);
-          }
-        });
-      } else {
-        // Store items selection - não limitado a 25
-        interaction.user.selectedTradeItems = selectedItems;
+      // Validate that selected items don't exceed 25 (Discord limit)
+      if (selectedItems.length > 25) {
+        await sendErrorReply(interaction, 'E06', `You selected ${selectedItems.length} items, but the maximum is 25 items per select menu. (Discord Limit)`);
+        return;
       }
 
+      // Store items selection
+      interaction.user.selectedTradeItems = selectedItems;
       interaction.user.selectedTradeCategory = category;
       interaction.user.selectedTradeSubcategory = subcategory;
 
@@ -2936,7 +4978,7 @@ client.on('interactionCreate', async (interaction) => {
         .setCustomId('quantities')
         .setLabel(`Quantities for ${interaction.user.selectedTradeItems.length} items (comma separated)`)
         .setStyle(TextInputStyle.Paragraph)
-        .setPlaceholder('1,2,3,... (one per item)')
+        .setPlaceholder('1,1,1... (one per item)')
         .setRequired(true);
 
       const row = new ActionRowBuilder().addComponents(quantitiesInput);
@@ -2982,32 +5024,21 @@ client.on('interactionCreate', async (interaction) => {
       }
       
       const items = itemCategories[category];
-      
-      // Paginar se necessário (max 25 options por select menu)
-      if (items.length > 25) {
-        const pages = paginateSelectMenuItems(items, 25);
-        const rows = [];
-        
-        for (const page of pages) {
-          const itemSelect = new StringSelectMenuBuilder()
-            .setCustomId(`offer_item_select_${messageId}_${category}_page${page.page}`)
-            .setPlaceholder(`Select items from ${category} (Page ${page.page}/${page.totalPages})`)
-            .setMaxValues(Math.min(page.items.length, 100))
-            .addOptions(page.items.map(item => ({ label: item, value: item })));
-          rows.push(new ActionRowBuilder().addComponents(itemSelect));
-        }
-        
-        await interaction.reply({ content: `Select items from **${category}** category (${items.length} total items):`, components: rows, flags: 64 });
-      } else {
-        const itemSelect = new StringSelectMenuBuilder()
-          .setCustomId(`offer_item_select_${messageId}_${category}`)
-          .setPlaceholder(`Select items from ${category}`)
-          .setMaxValues(Math.min(items.length, 100))
-          .addOptions(items.map(item => ({ label: item, value: item })));
+      const maxOptions = Math.min(items.length, 25);
+      const itemsToShow = items.slice(0, maxOptions);
+      const itemSelect = new StringSelectMenuBuilder()
+        .setCustomId(`offer_item_select_${messageId}_${category}`)
+        .setPlaceholder(`Select items from ${category}`)
+        .setMaxValues(maxOptions)
+        .addOptions(itemsToShow.map(item => ({ 
+          label: formatItemName(item), 
+          value: item,
+          emoji: getItemEmoji(item)
+        })));
 
-        const row = new ActionRowBuilder().addComponents(itemSelect);
-        await interaction.reply({ content: `Select items from **${category}** category:`, components: [row], flags: 64 });
-      }
+      const row = new ActionRowBuilder().addComponents(itemSelect);
+      const displayText = items.length > 25 ? `Select items from **${category}** category (showing 25 of ${items.length}):` : `Select items from **${category}** category:`;
+      await interaction.reply({ content: displayText, components: [row], flags: 64 });
     }
 
     if (interaction.customId.startsWith('offer_huge_subcategory_select_')) {
@@ -3016,84 +5047,39 @@ client.on('interactionCreate', async (interaction) => {
       const { StringSelectMenuBuilder } = require('discord.js');
       
       const items = itemCategories.huges[subcategory];
+      const maxOptions = Math.min(items.length, 25);
+      const itemsToShow = items.slice(0, maxOptions);
       
-      // Paginar se necessário (max 25 options por select menu)
-      if (items.length > 25) {
-        const pages = paginateSelectMenuItems(items, 25);
-        const rows = [];
-        
-        for (const page of pages) {
-          const itemSelect = new StringSelectMenuBuilder()
-            .setCustomId(`offer_item_select_${messageId}_huges_${subcategory}_page${page.page}`)
-            .setPlaceholder(`Select ${subcategory} (Page ${page.page}/${page.totalPages})`)
-            .setMaxValues(Math.min(page.items.length, 100))
-            .addOptions(page.items.map(item => ({ label: item, value: item })));
-          rows.push(new ActionRowBuilder().addComponents(itemSelect));
-        }
-        
-        await interaction.reply({ content: `Select items from **${subcategory}** (${items.length} total items):`, components: rows, flags: 64 });
-      } else {
-        const itemSelect = new StringSelectMenuBuilder()
-          .setCustomId(`offer_item_select_${messageId}_huges_${subcategory}`)
-          .setPlaceholder(`Select items from ${subcategory}`)
-          .setMaxValues(Math.min(items.length, 100))
-          .addOptions(items.map(item => ({ label: item, value: item })));
+      const itemSelect = new StringSelectMenuBuilder()
+        .setCustomId(`offer_item_select_${messageId}_huges_${subcategory}`)
+        .setPlaceholder(`Select items from ${subcategory}`)
+        .setMaxValues(maxOptions)
+        .addOptions(itemsToShow.map(item => ({ 
+          label: formatItemName(item), 
+          value: item,
+          emoji: getItemEmoji(item)
+        })));
 
-        const row = new ActionRowBuilder().addComponents(itemSelect);
-        await interaction.reply({ content: `Select items from **${subcategory}**:`, components: [row], flags: 64 });
-      }
+      const row = new ActionRowBuilder().addComponents(itemSelect);
+      const displayText = items.length > 25 ? `Select items from **${subcategory}** (showing ${maxOptions} of ${items.length}):` : `Select items from **${subcategory}**:`;
+      await interaction.reply({ content: displayText, components: [row], flags: 64 });
     }
 
     if (interaction.customId.startsWith('offer_item_select_')) {
       const parts = interaction.customId.replace('offer_item_select_', '').split('_');
       const messageId = parts[0];
       let category = parts[1];
-      let subcategory = null;
-      let isPagedSelect = false;
-      
-      // Detectar se é uma página de seleção com paginação
-      const pageMatch = interaction.customId.match(/page(\d+)$/);
-      if (pageMatch) {
-        isPagedSelect = true;
-        // Re-parse para encontrar a subcategoria corretamente
-        const withoutPage = interaction.customId.replace(/_page\d+$/, '').replace('offer_item_select_', '');
-        const subparts = withoutPage.split('_');
-        messageId = subparts[0];
-        if (withoutPage.includes('_huges_')) {
-          category = 'huges';
-          subcategory = subparts.slice(2).join('_');
-        } else {
-          category = subparts[1];
-          subcategory = subparts.length > 2 ? subparts.slice(2).join('_') : null;
-        }
-      } else {
-        // Parse normal
-        if (parts.length > 2 && parts[1] === 'huges') {
-          category = 'huges';
-          subcategory = parts.slice(2).join('_');
-        } else {
-          subcategory = parts.length > 2 ? parts.slice(2).join('_') : null;
-        }
-      }
-      
+      let subcategory = parts.length > 2 ? parts.slice(2).join('_') : null;
       const selectedItems = interaction.values;
 
-      // Se for paginado, acumular seleções
-      if (isPagedSelect) {
-        if (!interaction.user.selectedOfferItems) {
-          interaction.user.selectedOfferItems = [];
-        }
-        // Adicionar novos itens (evitar duplicatas)
-        selectedItems.forEach(item => {
-          if (!interaction.user.selectedOfferItems.includes(item)) {
-            interaction.user.selectedOfferItems.push(item);
-          }
-        });
-      } else {
-        // Store items selection - não limitado a 25
-        interaction.user.selectedOfferItems = selectedItems;
+      // Validate that selected items don't exceed 25 (Discord limit)
+      if (selectedItems.length > 25) {
+        await sendErrorReply(interaction, 'E06', `You selected ${selectedItems.length} items, but the maximum is 25 items per select menu. (Discord Limit)`);
+        return;
       }
 
+      // Store items selection
+      interaction.user.selectedOfferItems = selectedItems;
       interaction.user.selectedOfferCategory = category;
       interaction.user.selectedOfferSubcategory = subcategory;
       interaction.user.selectedOfferMessageId = messageId;
@@ -3105,9 +5091,9 @@ client.on('interactionCreate', async (interaction) => {
 
       const quantitiesInput = new TextInputBuilder()
         .setCustomId('offer_quantities')
-        .setLabel(`Quantities for ${interaction.user.selectedOfferItems.length} items (comma separated)`)
+        .setLabel(`Quantities for ${selectedItems.length} items (comma separated)`)
         .setStyle(TextInputStyle.Paragraph)
-        .setPlaceholder('1,2,3,... (one per item)')
+        .setPlaceholder('1,1,1... (one per item)')
         .setRequired(true);
 
       const row = new ActionRowBuilder().addComponents(quantitiesInput);
@@ -3143,7 +5129,7 @@ client.on('interactionCreate', async (interaction) => {
         const itemSelect = new StringSelectMenuBuilder()
           .setCustomId('trade_remove_item_select')
           .setPlaceholder('Select items to remove')
-          .setMaxValues(Math.min(100, itemsList.length))
+          .setMaxValues(Math.min(25, itemsList.length))
           .addOptions(itemsList.map((item, idx) => ({ 
             label: `${item.name} (x${item.quantity})`, 
             value: idx.toString()
@@ -3225,7 +5211,7 @@ client.on('interactionCreate', async (interaction) => {
 
           // Check if user is the trade host
           if (trade.host.id === interaction.user.id) {
-            return interaction.reply({ content: '❌ You cannot make an offer on your own trade!', flags: 64 });
+            return await sendErrorReply(interaction, 'E04');
           }
 
           // Add offer to trade
@@ -3281,7 +5267,7 @@ client.on('interactionCreate', async (interaction) => {
         // Show items to remove
         const items = interaction.user.offerTradeItems || [];
         if (items.length === 0) {
-          return await interaction.reply({ content: 'No items to remove.', flags: 64 });
+          return sendErrorReply(interaction, 'E84', 'No items to remove');
         }
 
         const { StringSelectMenuBuilder } = require('discord.js');
@@ -3296,7 +5282,8 @@ client.on('interactionCreate', async (interaction) => {
           const emoji = getItemEmoji(item.name);
           removeSelect.addOptions({
             label: `${formatItemName(item.name)} (x${item.quantity})`,
-            value: `${index}`
+            value: `${index}`,
+            emoji: emoji
           });
         });
 
@@ -3424,7 +5411,7 @@ client.on('interactionCreate', async (interaction) => {
         // Show items to remove
         const items = interaction.user.inventoryItems || [];
         if (items.length === 0) {
-          return await interaction.reply({ content: 'No items to remove.', flags: 64 });
+          return sendErrorReply(interaction, 'E84', 'No items to remove');
         }
 
         const { StringSelectMenuBuilder } = require('discord.js');
@@ -3439,7 +5426,8 @@ client.on('interactionCreate', async (interaction) => {
           const emoji = getItemEmoji(item.name);
           removeSelect.addOptions({
             label: `${formatItemName(item.name)} (x${item.quantity})`,
-            value: `${index}`
+            value: `${index}`,
+            emoji: emoji
           });
         });
 
@@ -3560,7 +5548,7 @@ client.on('interactionCreate', async (interaction) => {
         // Show items to remove
         const items = interaction.user.giveawayItems || [];
         if (items.length === 0) {
-          return await interaction.reply({ content: 'No items to remove.', flags: 64 });
+          return sendErrorReply(interaction, 'E84', 'No items to remove');
         }
 
         const { StringSelectMenuBuilder } = require('discord.js');
@@ -3575,7 +5563,8 @@ client.on('interactionCreate', async (interaction) => {
           const emoji = getItemEmoji(item.name);
           removeSelect.addOptions({
             label: `${formatItemName(item.name)} (x${item.quantity})`,
-            value: `${index}`
+            value: `${index}`,
+            emoji: emoji
           });
         });
 
@@ -3676,40 +5665,18 @@ client.on('interactionCreate', async (interaction) => {
       }
       
       const items = itemCategories[category];
-      
-      // Paginar se necessário (max 25 options por select menu)
-      if (items.length > 25) {
-        const pages = paginateSelectMenuItems(items, 25);
-        const rows = [];
-        
-        for (const page of pages) {
-          const itemSelect = new StringSelectMenuBuilder()
-            .setCustomId(`inventory_item_select_${category}_page${page.page}`)
-            .setPlaceholder(`Select items from ${category} (Page ${page.page}/${page.totalPages})`)
-            .setMaxValues(Math.min(page.items.length, 100))
-            .addOptions(page.items.map(item => ({ 
-              label: formatItemName(item), 
-              value: item,
-              emoji: getItemEmoji(item)
-            })));
-          rows.push(new ActionRowBuilder().addComponents(itemSelect));
-        }
-        
-        await interaction.reply({ content: `Select items from **${category}** category (${items.length} total items):`, components: rows, flags: 64 });
-      } else {
-        const itemSelect = new StringSelectMenuBuilder()
-          .setCustomId(`inventory_item_select_${category}`)
-          .setPlaceholder(`Select items from ${category}`)
-          .setMaxValues(Math.min(items.length, 100))
-          .addOptions(items.map(item => ({ 
-            label: formatItemName(item), 
-            value: item,
-            emoji: getItemEmoji(item)
-          })));
+      const itemSelect = new StringSelectMenuBuilder()
+        .setCustomId(`inventory_item_select_${category}`)
+        .setPlaceholder(`Select items from ${category}`)
+        .setMaxValues(Math.min(items.length, 100))
+        .addOptions(items.map(item => ({ 
+          label: formatItemName(item), 
+          value: item,
+          emoji: getItemEmoji(item)
+        })));
 
-        const row = new ActionRowBuilder().addComponents(itemSelect);
-        await interaction.reply({ content: `Select items from **${category}** category:`, components: [row], flags: 64 });
-      }
+      const row = new ActionRowBuilder().addComponents(itemSelect);
+      await interaction.reply({ content: `Select items from **${category}** category:`, components: [row], flags: 64 });
     }
 
     if (interaction.customId === 'inventory_huge_subcategory_select') {
@@ -3717,90 +5684,29 @@ client.on('interactionCreate', async (interaction) => {
       const { StringSelectMenuBuilder } = require('discord.js');
       
       const items = itemCategories.huges[subcategory];
-      
-      // Paginar se necessário (max 25 options por select menu)
-      if (items.length > 25) {
-        const pages = paginateSelectMenuItems(items, 25);
-        const rows = [];
-        
-        for (const page of pages) {
-          const itemSelect = new StringSelectMenuBuilder()
-            .setCustomId(`inventory_item_select_huges_${subcategory}_page${page.page}`)
-            .setPlaceholder(`Select ${subcategory} (Page ${page.page}/${page.totalPages})`)
-            .setMaxValues(Math.min(page.items.length, 100))
-            .addOptions(page.items.map(item => ({ 
-              label: formatItemName(item), 
-              value: item,
-              emoji: getItemEmoji(item)
-            })));
-          rows.push(new ActionRowBuilder().addComponents(itemSelect));
-        }
-        
-        await interaction.reply({ content: `Select items from **${subcategory}** (${items.length} total items):`, components: rows, flags: 64 });
-      } else {
-        const itemSelect = new StringSelectMenuBuilder()
-          .setCustomId(`inventory_item_select_huges_${subcategory}`)
-          .setPlaceholder(`Select items from ${subcategory}`)
-          .setMaxValues(Math.min(items.length, 100))
-          .addOptions(items.map(item => ({ 
-            label: formatItemName(item), 
-            value: item,
-            emoji: getItemEmoji(item)
-          })));
+      const itemSelect = new StringSelectMenuBuilder()
+        .setCustomId(`inventory_item_select_huges_${subcategory}`)
+        .setPlaceholder(`Select items from ${subcategory}`)
+        .setMaxValues(Math.min(items.length, 100))
+        .addOptions(items.map(item => ({ 
+          label: formatItemName(item), 
+          value: item,
+          emoji: getItemEmoji(item)
+        })));
 
-        const row = new ActionRowBuilder().addComponents(itemSelect);
-        await interaction.reply({ content: `Select items from **${subcategory}**:`, components: [row], flags: 64 });
-      }
+      const row = new ActionRowBuilder().addComponents(itemSelect);
+      await interaction.reply({ content: `Select items from **${subcategory}**:`, components: [row], flags: 64 });
     }
 
     if (interaction.customId.startsWith('inventory_item_select_')) {
       const parts = interaction.customId.replace('inventory_item_select_', '').split('_');
       let category = parts[0];
-      let subcategory = null;
-      let isPagedSelect = false;
-      
-      // Detectar se é uma página de seleção com paginação
-      const pageMatch = interaction.customId.match(/page(\d+)$/);
-      if (pageMatch) {
-        isPagedSelect = true;
-        // Re-parse para encontrar a subcategoria corretamente
-        const withoutPage = interaction.customId.replace(/_page\d+$/, '').replace('inventory_item_select_', '');
-        const subparts = withoutPage.split('_');
-        if (withoutPage.startsWith('huges_')) {
-          category = 'huges';
-          subcategory = subparts.slice(1).join('_');
-        } else {
-          category = subparts[0];
-          subcategory = subparts.length > 1 ? subparts.slice(1).join('_') : null;
-        }
-      } else {
-        // Parse normal
-        if (parts.length > 1 && parts[0] === 'huges') {
-          category = 'huges';
-          subcategory = parts.slice(1).join('_');
-        } else {
-          subcategory = parts.length > 1 ? parts.slice(1).join('_') : null;
-        }
-      }
+      let subcategory = parts.length > 1 ? parts.slice(1).join('_') : null;
       
       const selectedItems = interaction.values;
 
-      // Se for paginado, acumular seleções
-      if (isPagedSelect) {
-        if (!interaction.user.selectedInventoryItems) {
-          interaction.user.selectedInventoryItems = [];
-        }
-        // Adicionar novos itens (evitar duplicatas)
-        selectedItems.forEach(item => {
-          if (!interaction.user.selectedInventoryItems.includes(item)) {
-            interaction.user.selectedInventoryItems.push(item);
-          }
-        });
-      } else {
-        // Store items selection - não limitado a 25
-        interaction.user.selectedInventoryItems = selectedItems;
-      }
-
+      // Store items selection - no longer limited to 25
+      interaction.user.selectedInventoryItems = selectedItems;
       interaction.user.selectedInventoryCategory = category;
       interaction.user.selectedInventorySubcategory = subcategory;
 
@@ -3810,9 +5716,9 @@ client.on('interactionCreate', async (interaction) => {
 
       const quantitiesInput = new TextInputBuilder()
         .setCustomId('inv_quantities')
-        .setLabel(`Quantities for ${interaction.user.selectedInventoryItems.length} items (comma separated)`)
+        .setLabel(`Quantities for ${selectedItems.length} items (comma separated)`)
         .setStyle(TextInputStyle.Paragraph)
-        .setPlaceholder('1,2,3,... (one per item)')
+        .setPlaceholder('1,1,1... (one per item)')
         .setRequired(true);
 
       const row = new ActionRowBuilder().addComponents(quantitiesInput);
@@ -3859,40 +5765,18 @@ client.on('interactionCreate', async (interaction) => {
       }
       
       const items = giveawayItemCategories[category];
-      
-      // Paginar se necessário (max 25 options por select menu)
-      if (items.length > 25) {
-        const pages = paginateSelectMenuItems(items, 25);
-        const rows = [];
-        
-        for (const page of pages) {
-          const itemSelect = new StringSelectMenuBuilder()
-            .setCustomId(`giveaway_item_select_${category}_page${page.page}`)
-            .setPlaceholder(`Select items from ${category} (Page ${page.page}/${page.totalPages})`)
-            .setMaxValues(Math.min(page.items.length, 100))
-            .addOptions(page.items.map(item => ({ 
-              label: formatItemName(item), 
-              value: item,
-              emoji: getItemEmoji(item)
-            })));
-          rows.push(new ActionRowBuilder().addComponents(itemSelect));
-        }
-        
-        await interaction.reply({ content: `Select items from **${category}** category (${items.length} total items):`, components: rows, flags: 64 });
-      } else {
-        const itemSelect = new StringSelectMenuBuilder()
-          .setCustomId(`giveaway_item_select_${category}`)
-          .setPlaceholder(`Select items from ${category}`)
-          .setMaxValues(Math.min(items.length, 100))
-          .addOptions(items.map(item => ({ 
-            label: formatItemName(item), 
-            value: item,
-            emoji: getItemEmoji(item)
-          })));
+      const itemSelect = new StringSelectMenuBuilder()
+        .setCustomId(`giveaway_item_select_${category}`)
+        .setPlaceholder(`Select items from ${category}`)
+        .setMaxValues(Math.min(items.length, 100))
+        .addOptions(items.map(item => ({ 
+          label: formatItemName(item), 
+          value: item,
+          emoji: getItemEmoji(item)
+        })));
 
-        const row = new ActionRowBuilder().addComponents(itemSelect);
-        await interaction.reply({ content: `Select items from **${category}** category:`, components: [row], flags: 64 });
-      }
+      const row = new ActionRowBuilder().addComponents(itemSelect);
+      await interaction.reply({ content: `Select items from **${category}** category:`, components: [row], flags: 64 });
     }
 
     if (interaction.customId === 'giveaway_huge_subcategory_select') {
@@ -3900,90 +5784,29 @@ client.on('interactionCreate', async (interaction) => {
       const { StringSelectMenuBuilder } = require('discord.js');
       
       const items = giveawayItemCategories.huges[subcategory];
-      
-      // Paginar se necessário (max 25 options por select menu)
-      if (items.length > 25) {
-        const pages = paginateSelectMenuItems(items, 25);
-        const rows = [];
-        
-        for (const page of pages) {
-          const itemSelect = new StringSelectMenuBuilder()
-            .setCustomId(`giveaway_item_select_huges_${subcategory}_page${page.page}`)
-            .setPlaceholder(`Select ${subcategory} (Page ${page.page}/${page.totalPages})`)
-            .setMaxValues(Math.min(page.items.length, 100))
-            .addOptions(page.items.map(item => ({ 
-              label: formatItemName(item), 
-              value: item,
-              emoji: getItemEmoji(item)
-            })));
-          rows.push(new ActionRowBuilder().addComponents(itemSelect));
-        }
-        
-        await interaction.reply({ content: `Select items from **${subcategory}** (${items.length} total items):`, components: rows, flags: 64 });
-      } else {
-        const itemSelect = new StringSelectMenuBuilder()
-          .setCustomId(`giveaway_item_select_huges_${subcategory}`)
-          .setPlaceholder(`Select items from ${subcategory}`)
-          .setMaxValues(Math.min(items.length, 100))
-          .addOptions(items.map(item => ({ 
-            label: formatItemName(item), 
-            value: item,
-            emoji: getItemEmoji(item)
-          })));
+      const itemSelect = new StringSelectMenuBuilder()
+        .setCustomId(`giveaway_item_select_huges_${subcategory}`)
+        .setPlaceholder(`Select items from ${subcategory}`)
+        .setMaxValues(Math.min(items.length, 100))
+        .addOptions(items.map(item => ({ 
+          label: formatItemName(item), 
+          value: item,
+          emoji: getItemEmoji(item)
+        })));
 
-        const row = new ActionRowBuilder().addComponents(itemSelect);
-        await interaction.reply({ content: `Select items from **${subcategory}**:`, components: [row], flags: 64 });
-      }
+      const row = new ActionRowBuilder().addComponents(itemSelect);
+      await interaction.reply({ content: `Select items from **${subcategory}**:`, components: [row], flags: 64 });
     }
 
     if (interaction.customId.startsWith('giveaway_item_select_')) {
       const parts = interaction.customId.replace('giveaway_item_select_', '').split('_');
       let category = parts[0];
-      let subcategory = null;
-      let isPagedSelect = false;
-      
-      // Detectar se é uma página de seleção com paginação
-      const pageMatch = interaction.customId.match(/page(\d+)$/);
-      if (pageMatch) {
-        isPagedSelect = true;
-        // Re-parse para encontrar a subcategoria corretamente
-        const withoutPage = interaction.customId.replace(/_page\d+$/, '').replace('giveaway_item_select_', '');
-        const subparts = withoutPage.split('_');
-        if (withoutPage.startsWith('huges_')) {
-          category = 'huges';
-          subcategory = subparts.slice(1).join('_');
-        } else {
-          category = subparts[0];
-          subcategory = subparts.length > 1 ? subparts.slice(1).join('_') : null;
-        }
-      } else {
-        // Parse normal
-        if (parts.length > 1 && parts[0] === 'huges') {
-          category = 'huges';
-          subcategory = parts.slice(1).join('_');
-        } else {
-          subcategory = parts.length > 1 ? parts.slice(1).join('_') : null;
-        }
-      }
+      let subcategory = parts.length > 1 ? parts.slice(1).join('_') : null;
       
       const selectedItems = interaction.values;
 
-      // Se for paginado, acumular seleções
-      if (isPagedSelect) {
-        if (!interaction.user.selectedGiveawayItems) {
-          interaction.user.selectedGiveawayItems = [];
-        }
-        // Adicionar novos itens (evitar duplicatas)
-        selectedItems.forEach(item => {
-          if (!interaction.user.selectedGiveawayItems.includes(item)) {
-            interaction.user.selectedGiveawayItems.push(item);
-          }
-        });
-      } else {
-        // Store items selection - não limitado a 25
-        interaction.user.selectedGiveawayItems = selectedItems;
-      }
-
+      // Store items selection - no longer limited to 25
+      interaction.user.selectedGiveawayItems = selectedItems;
       interaction.user.selectedGiveawayCategory = category;
       interaction.user.selectedGiveawaySubcategory = subcategory;
 
@@ -3995,7 +5818,7 @@ client.on('interactionCreate', async (interaction) => {
         .setCustomId('gwa_quantities')
         .setLabel(`Quantities for ${selectedItems.length} items (comma separated)`)
         .setStyle(TextInputStyle.Paragraph)
-        .setPlaceholder('1,2,3,... (one per item)')
+        .setPlaceholder('1,1,1... (one per item)')
         .setRequired(true);
 
       const row = new ActionRowBuilder().addComponents(quantitiesInput);
@@ -4200,7 +6023,7 @@ client.on('interactionCreate', async (interaction) => {
       const quantitiesStr = interaction.fields.getTextInputValue('quantities');
       const quantities = quantitiesStr.split(',').map(q => parseInt(q.trim()) || 1);
       if (quantities.length !== selectedItems.length) {
-        return interaction.reply({ content: `Please provide exactly ${selectedItems.length} quantities separated by commas.`, flags: MessageFlags.Ephemeral });
+        return sendErrorReply(interaction, 'E80', `Please provide exactly ${selectedItems.length} quantities separated by commas`);
       }
       const itemsWithQty = selectedItems.map((item, index) => {
         const qty = Math.max(1, quantities[index]);
@@ -4265,7 +6088,7 @@ client.on('interactionCreate', async (interaction) => {
       const quantitiesStr = interaction.fields.getTextInputValue('offer_quantities');
       const quantities = quantitiesStr.split(',').map(q => parseInt(q.trim()) || 1);
       if (quantities.length !== selectedItems.length) {
-        return interaction.reply({ content: `Please provide exactly ${selectedItems.length} quantities separated by commas.`, flags: MessageFlags.Ephemeral });
+        return sendErrorReply(interaction, 'E80', `Please provide exactly ${selectedItems.length} quantities separated by commas`);
       }
       const itemsWithQty = selectedItems.map((item, index) => {
         const qty = Math.max(1, quantities[index]);
@@ -4277,6 +6100,9 @@ client.on('interactionCreate', async (interaction) => {
         interaction.user.offerTradeItems = [];
       }
       interaction.user.offerTradeItems = interaction.user.offerTradeItems.concat(itemsWithQty);
+      
+      // Track item count for validation
+      trackItemCount(interaction.user.id, 'offerTradeCount', interaction.user.offerTradeItems.length);
 
       // Show option to add more categories or proceed
       const { StringSelectMenuBuilder } = require('discord.js');
@@ -4313,7 +6139,7 @@ client.on('interactionCreate', async (interaction) => {
       const quantitiesStr = interaction.fields.getTextInputValue('inv_quantities');
       const quantities = quantitiesStr.split(',').map(q => parseInt(q.trim()) || 1);
       if (quantities.length !== selectedItems.length) {
-        return interaction.reply({ content: `Please provide exactly ${selectedItems.length} quantities separated by commas.`, flags: MessageFlags.Ephemeral });
+        return sendErrorReply(interaction, 'E80', `Please provide exactly ${selectedItems.length} quantities separated by commas`);
       }
       const itemsWithQty = selectedItems.map((item, index) => {
         const qty = Math.max(1, quantities[index]);
@@ -4324,6 +6150,9 @@ client.on('interactionCreate', async (interaction) => {
         interaction.user.inventoryItems = [];
       }
       interaction.user.inventoryItems = interaction.user.inventoryItems.concat(itemsWithQty);
+      
+      // Track item count for validation
+      trackItemCount(interaction.user.id, 'inventoryCount', interaction.user.inventoryItems.length);
 
       const { StringSelectMenuBuilder } = require('discord.js');
       
@@ -4357,7 +6186,7 @@ client.on('interactionCreate', async (interaction) => {
       const quantitiesStr = interaction.fields.getTextInputValue('gwa_quantities');
       const quantities = quantitiesStr.split(',').map(q => parseInt(q.trim()) || 1);
       if (quantities.length !== selectedItems.length) {
-        return interaction.reply({ content: `Please provide exactly ${selectedItems.length} quantities separated by commas.`, flags: MessageFlags.Ephemeral });
+        return sendErrorReply(interaction, 'E80', `Please provide exactly ${selectedItems.length} quantities separated by commas`);
       }
       const itemsWithQty = selectedItems.map((item, index) => {
         const qty = Math.max(1, quantities[index]);
@@ -4368,6 +6197,9 @@ client.on('interactionCreate', async (interaction) => {
         interaction.user.giveawayItems = [];
       }
       interaction.user.giveawayItems = interaction.user.giveawayItems.concat(itemsWithQty);
+      
+      // Track item count for validation
+      trackItemCount(interaction.user.id, 'giveawayCount', interaction.user.giveawayItems.length);
 
       const { StringSelectMenuBuilder } = require('discord.js');
       
@@ -4393,6 +6225,11 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     if (interaction.customId === 'inventory_setup_modal') {
+  // Defer the reply to avoid timeout on long operations
+  if (!interaction.deferred && !interaction.replied) {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  }
+
   const diamondsStr = interaction.fields.fields.has('inv_diamonds') ? interaction.fields.getTextInputValue('inv_diamonds') : '0';
   const lookingFor = interaction.fields.getTextInputValue('inv_looking_for') || 'Not specified';
   const robloxInput = interaction.fields.getTextInputValue('inv_roblox_username') || '';
@@ -4415,6 +6252,22 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   const inventoryItems = interaction.user.inventoryItems || [];
+  
+  // Validate that items were not lost
+  const itemCountBeforeDeletion = inventoryItems.length;
+  validateItemsNotLost(interaction, 'Inventory Setup', itemCountBeforeDeletion, inventoryItems);
+
+  delete interaction.user.inventoryItems;
+  delete interaction.user.selectedInventoryItems;
+  delete interaction.user.selectedInventoryCategory;
+  delete interaction.user.selectedInventorySubcategory;
+  
+  // Validate item count before finalizing
+  const isValid = await validateItemCount(interaction, 'inventoryCount', inventoryItems.length, inventoryItems);
+  if (!isValid) {
+    return sendErrorReply(interaction, 'E50', 'Item count validation failed. Please try again.');
+  }
+  
   delete interaction.user.inventoryItems;
   // ... (rest of your deletes)
 
@@ -4432,7 +6285,7 @@ client.on('interactionCreate', async (interaction) => {
   const embed = new EmbedBuilder()
     .setTitle('📦 Inventory')
     .setColor(0x00a8ff)
-    .setFooter({ text: 'Version 1.0.9 | Made By Atlas' })
+    .setFooter({ text: 'Version 1.1.3 | Made By Atlas' })
     .setThumbnail('https://media.discordapp.net/attachments/1461378333278470259/1461514275976773674/B2087062-9645-47D0-8918-A19815D8E6D8.png?ex=696ad4bd&is=6969833d&hm=2f262b12ac860c8d92f40789893fda4f1ea6289bc5eb114c211950700eb69a79&=&format=webp&quality=lossless&width=1376&height=917');
 
   // AUTHOR CONFIGURATION (Roblox Avatar)
@@ -4466,28 +6319,25 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   // Rest of embed filling...
-  // Paginate inventory items (15 per page)
-  const inventoryPages = paginateItems(inventoryItems);
-  const invFirstPage = inventoryPages[0];
-  
-  let invFieldName = `Items${diamonds > 0 ? ` + ${formatBid(diamonds)} 💎` : 'None'}`;
-  if (inventoryPages.length > 1) {
-    invFieldName += ` [${invFirstPage.page}/${invFirstPage.totalPages}]`;
-  }
-  
-  embed.addFields({ 
-    name: invFieldName,
-    value: invFirstPage.text || 'None',
-    inline: true
-  });
+  // Paginate inventory items
+  const inventoryPaginationData = paginateTradeItems(inventoryItems, 1, 10);
+  const inventoryItemsField = inventoryPaginationData.totalPages > 1 
+    ? `${inventoryPaginationData.text}\n\n*Page ${inventoryPaginationData.page}/${inventoryPaginationData.totalPages}*`
+    : inventoryPaginationData.text;
 
-  embed.addFields({ name: 'Looking For', value: lookingFor, inline: true });
+  addFieldSafely(embed,
+    `Items${diamonds > 0 ? ` + ${formatBid(diamonds)} 💎` : 'None'}`,
+    inventoryItemsField,
+    false
+  );
+
+  addFieldSafely(embed, 'Looking For', lookingFor, true);
 
   const now = new Date();
   // Adjust to GMT-5 (UTC-5)
   const gmt5Time = new Date(now.getTime() - (5 * 60 * 60 * 1000));
   const timeStr = `${gmt5Time.getDate()}/${gmt5Time.getMonth() + 1}/${gmt5Time.getFullYear()} at ${gmt5Time.getHours().toString().padStart(2, '0')}:${gmt5Time.getMinutes().toString().padStart(2, '0')}`;
-  embed.addFields({ name: 'Last Edited', value: timeStr, inline: false });
+  addFieldSafely(embed, 'Last Edited', timeStr, false);
 
   // Buttons and sending...
   const updateButton = new ButtonBuilder()
@@ -4501,8 +6351,31 @@ client.on('interactionCreate', async (interaction) => {
     .setStyle(ButtonStyle.Danger);
 
   const row = new ActionRowBuilder().addComponents(updateButton, deleteButton);
+  const components = [row];
+
+  // Add pagination buttons if there are multiple pages
+  if (inventoryPaginationData.hasMultiplePages) {
+    const paginationRow = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`inventory_page_prev_${Date.now()}`).setLabel('Previous').setStyle(ButtonStyle.Secondary).setDisabled(true),
+      new ButtonBuilder().setCustomId(`inventory_page_next_${Date.now()}`).setLabel('Next').setStyle(ButtonStyle.Secondary).setDisabled(inventoryPaginationData.page === inventoryPaginationData.totalPages)
+    );
+    components.push(paginationRow);
+  }
   const targetChannel = redirectInventoryChannelId ? interaction.guild.channels.cache.get(redirectInventoryChannelId) : interaction.channel;
-  const message = await targetChannel.send({ embeds: [embed], components: [row] });
+  
+  let message;
+  if (interaction.deferred) {
+    // If we deferred earlier, use editReply for the deferred response
+    const ephemeralMessage = await interaction.editReply({ embeds: [embed], components: [row] });
+    // Send a public copy to the target channel if different from current channel
+    if (targetChannel.id !== interaction.channel.id) {
+      message = await targetChannel.send({ embeds: [embed], components: [row] });
+    } else {
+      message = ephemeralMessage;
+    }
+  } else {
+    message = await targetChannel.send({ embeds: [embed], components: [row] });
+  }
 
   // Salvar dados
   const inventoryData = {
@@ -4584,19 +6457,31 @@ async function getRobloxAvatarUrl(userId) {
 }
   
     if (interaction.customId === 'giveaway_setup_modal') {
+      // Defer the reply to avoid timeout on long operations
+      if (!interaction.deferred && !interaction.replied) {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      }
+
       const giveawayItems = interaction.user.giveawayItems || [];
       const description = interaction.fields.getTextInputValue('gwa_description') || '';
       const durationStr = interaction.fields.getTextInputValue('gwa_duration');
+      
+      // Validate that items were not lost
+      const itemCountBeforeDeletion = giveawayItems.length;
+      validateItemsNotLost(interaction, 'Giveaway Setup', itemCountBeforeDeletion, giveawayItems);
+      
+      // Validate item count before finalizing
+      const isValid = await validateItemCount(interaction, 'giveawayCount', giveawayItems.length, giveawayItems);
+      if (!isValid) {
+        return sendErrorReply(interaction, 'E50', 'Item count validation failed. Please try again.');
+      }
       
       // Validate duration
       let duration = parseDuration(durationStr);
       const MAX_DURATION_MINUTES = 1440; // 24 hours = 1440 minutes = 86400 seconds
       
       if (isNaN(duration) || duration < 1 || duration > MAX_DURATION_MINUTES) {
-        return interaction.reply({ 
-          content: `Invalid duration. Please enter a time between 1 second and 24 hours (1440 minutes or 86400 seconds). Examples: 60s, 30m, 1h, 1440, etc.`, 
-          flags: MessageFlags.Ephemeral 
-        });
+        return sendErrorReply(interaction, 'E85', `Invalid duration. Please enter a time between 1 second and 24 hours (1440 minutes or 86400 seconds). Examples: 60s, 30m, 1h, 1440, etc.`);
       }
       
       delete interaction.user.giveawayItems;
@@ -4609,45 +6494,29 @@ async function getRobloxAvatarUrl(userId) {
         .setTitle('🎁 Giveaway')
         .setDescription(description ? `**${description}**\n\n**Click the button below to enter the giveaway!**` : '**Click the button below to enter the giveaway!**')
         .setColor(0xFF1493)
-        .setFooter({ text: 'Version 1.0.9 | Made By Atlas' })
+        .setFooter({ text: 'Version 1.1.3 | Made By Atlas' })
         .setThumbnail('https://media.discordapp.net/attachments/1461378333278470259/1461514275976773674/B2087062-9645-47D0-8918-A19815D8E6D8.png?ex=696ad4bd&is=6969833d&hm=2f262b12ac860c8d92f40789893fda4f1ea6289bc5eb114c211950700eb69a79&=&format=webp&quality=lossless&width=1376&height=917');
 
-      // Paginate giveaway items (15 per page)
-      const giveawayPages = paginateItems(giveawayItems);
-      const giveawayFirstPage = giveawayPages[0];
-      
-      let giveawayFieldName = 'Giveaway Items';
-      if (giveawayPages.length > 1) {
-        giveawayFieldName += ` [${giveawayFirstPage.page}/${giveawayFirstPage.totalPages}]`;
-      }
+      // Format giveaway items with pagination
+      const giveawayPaginationData = paginateTradeItems(giveawayItems, 1, 10);
+      const giveawayItemsField = giveawayPaginationData.totalPages > 1 
+        ? `${giveawayPaginationData.text}\n\n*Page ${giveawayPaginationData.page}/${giveawayPaginationData.totalPages}*`
+        : giveawayPaginationData.text;
 
-      embed.addFields({
-        name: giveawayFieldName,
-        value: giveawayFirstPage.text || 'None',
-        inline: false
-      });
+      addFieldSafely(embed, 'Giveaway Items', giveawayItemsField, false);
 
-      embed.addFields({
-        name: 'Hosted by',
-        value: interaction.user.toString(),
-        inline: false
-      });
+      addFieldSafely(embed, 'Hosted by', interaction.user.toString(), false);
 
       // Add creator description if provided
       if (description) {
-        embed.addFields({
-          name: 'Description',
-          value: description,
-          inline: false
-        });
+        addFieldSafely(embed, 'Description',
+          description,
+        false
+        );
       }
 
       // Add duration field
-      embed.addFields({
-        name: 'Time Remaining',
-        value: 'Calculating...',
-        inline: false
-      });
+      addFieldSafely(embed, 'Time Remaining', 'Calculating...', false);
 
       // Calculate duration text for the reply message
       const durationHours = Math.floor(duration / 60);
@@ -4744,31 +6613,15 @@ async function getRobloxAvatarUrl(userId) {
               const endEmbed = new EmbedBuilder()
                 .setTitle('🎁 Giveaway Ended!')
                 .setColor(0xFF1493)
-                .setFooter({ text: 'Version 1.0.9 | Made By Atlas' });
+                .setFooter({ text: 'Version 1.1.3 | Made By Atlas' });
               
               // Winner field
-              endEmbed.addFields({ name: 'Winner', value: `**${winner.user}**`, inline: false });
+              addFieldSafely(endEmbed, 'Winner', `**${winner.user}**`, false);
               
-              // Paginate giveaway items (15 per page)
-              const endGiveawayPages = paginateItems(currentGiveaway.items);
-              const endGiveawayPage = endGiveawayPages[0];
+              const itemsText = currentGiveaway.items && currentGiveaway.items.length > 0 ? formatItemsText(currentGiveaway.items) : 'None';
+              addFieldSafely(endEmbed, 'Giveaway Items', itemsText, false);
               
-              let endGiveawayFieldName = 'Giveaway Items';
-              if (endGiveawayPages.length > 1) {
-                endGiveawayFieldName += ` [${endGiveawayPage.page}/${endGiveawayPage.totalPages}]`;
-              }
-              
-              endEmbed.addFields({
-                name: endGiveawayFieldName,
-                value: endGiveawayPage.text || 'None',
-                inline: false
-              });
-              
-              endEmbed.addFields({
-                name: 'Total Entries',
-                value: currentGiveaway.entries.length.toString(),
-                inline: true
-              });
+              addFieldSafely(endEmbed, 'Total Entries', currentGiveaway.entries.length.toString(), true);
               
               const channel = interaction.guild.channels.cache.get(currentGiveaway.channelId);
               if (channel) {
@@ -4784,28 +6637,16 @@ async function getRobloxAvatarUrl(userId) {
             .setTitle('🎁 Giveaway')
             .setDescription(currentGiveaway.description ? `**${currentGiveaway.description}**\n\n**Click the button below to enter the giveaway!**` : '**Click the button below to enter the giveaway!**')
             .setColor(0xFF1493)
-            .setFooter({ text: 'Version 1.0.9 | Made By Atlas' })
+            .setFooter({ text: 'Version 1.1.3 | Made By Atlas' })
             .setThumbnail('https://media.discordapp.net/attachments/1461378333278470259/1461514275976773674/B2087062-9645-47D0-8918-A19815D8E6D8.png?ex=696ad4bd&is=6969833d&hm=2f262b12ac860c8d92f40789893fda4f1ea6289bc5eb114c211950700eb69a79&=&format=webp&quality=lossless&width=1376&height=917');
           
           const giveawayItemsText = formatItemsText(currentGiveaway.items);
           
-          updatedEmbed.addFields({
-            name: 'Giveaway Items',
-            value: giveawayItemsText,
-            inline: false
-          });
+          addFieldSafely(updatedEmbed, 'Giveaway Items', giveawayItemsText, false);
           
-          updatedEmbed.addFields({
-            name: 'Hosted by',
-            value: currentGiveaway.host.toString(),
-            inline: false
-          });
+          addFieldSafely(updatedEmbed, 'Hosted by', currentGiveaway.host.toString(), false);
           
-          updatedEmbed.addFields({
-            name: 'Time Remaining',
-            value: formatTimeRemaining(currentGiveaway.expiresAt),
-            inline: false
-          });
+          addFieldSafely(updatedEmbed, 'Time Remaining', formatTimeRemaining(currentGiveaway.expiresAt), false);
           
           // Update components with new entries count
           const entriesCount = currentGiveaway.entries.length;
@@ -4835,12 +6676,23 @@ async function getRobloxAvatarUrl(userId) {
       
       giveawayData.updateInterval = updateInterval;
 
-      await interaction.reply({ content: replyMessage, flags: 64 });
+      if (interaction.deferred) {
+        await interaction.editReply({ content: replyMessage });
+      } else {
+        await interaction.reply({ content: replyMessage, flags: 64 });
+      }
       return;
     }
 
     if (interaction.customId === 'trade_setup_modal') {
-      const diamondsStr = interaction.fields.getTextInputValue('trade_diamonds') || '0';
+      let diamondsStr = '0';
+      try {
+        diamondsStr = interaction.fields.getTextInputValue('trade_diamonds') || '0';
+      } catch (e) {
+        // Field not found - diamonds already added as items
+        diamondsStr = '0';
+      }
+      
       const targetUsername = interaction.fields.getTextInputValue('trade_target_user') || '';
 
       let diamonds = 0;
@@ -4849,37 +6701,37 @@ async function getRobloxAvatarUrl(userId) {
       }
 
       const hostItems = interaction.user.tradeItems || [];
+      
+      // Validate that items were not lost (track item count before deletion)
+      const itemCountBeforeDeletion = hostItems.length;
+      validateItemsNotLost(interaction, 'Trade Offer Setup', itemCountBeforeDeletion, hostItems);
+      
       delete interaction.user.tradeItems;
       delete interaction.user.selectedTradeItems;
       delete interaction.user.selectedTradeCategory;
       delete interaction.user.selectedTradeSubcategory;
+
+      // Paginate items if more than 10
+      const paginationData = paginateTradeItems(hostItems, 1, 10);
 
       // Create trade embed
       const embed = new EmbedBuilder()
         .setTitle('Trade Offer')
         .setDescription(`**Host:** <@${interaction.user.id}>\n**Status:** Waiting for offers`)
         .setColor(0x0099ff)
-        .setFooter({ text: 'Version 1.1.0 | Made By Atlas' })
+        .setFooter({ text: 'Version 1.1.3 | Made By Atlas' })
         .setThumbnail('https://media.discordapp.net/attachments/1461378333278470259/1461514275976773674/B2087062-9645-47D0-8918-A19815D8E6D8.png?ex=696ad4bd&is=6969833d&hm=2f262b12ac860c8d92f40789893fda4f1ea6289bc5eb114c211950700eb69a79&=&format=webp&quality=lossless&width=1376&height=917');
 
-      // Paginate host items (15 per page)
-      const hostItemsPages = paginateItems(hostItems);
-      const firstPage = hostItemsPages[0];
+      // Format host items with pagination info
+      const hostItemsField = paginationData.totalPages > 1 
+        ? `${paginationData.text}\n\n*Page ${paginationData.page}/${paginationData.totalPages}*`
+        : paginationData.text;
       
-      // Format field name with pagination info if needed
-      let fieldName = `Host Items${diamonds > 0 ? ` + ${formatBid(diamonds)} 💎` : ''}`;
-      if (hostItemsPages.length > 1) {
-        fieldName += ` [${firstPage.page}/${firstPage.totalPages}]`;
-      }
-      
-      // Ensure field name is not empty
-      if (fieldName && fieldName.trim() !== '') {
-        embed.addFields({
-          name: fieldName,
-          value: firstPage.text || 'None',
-          inline: false
-        });
-      }
+      addFieldSafely(embed, 
+        `Host Items${diamonds > 0 ? ` + ${formatBid(diamonds)} 💎` : ''}`,
+        hostItemsField,
+        false
+      );
 
       const offerButton = new ButtonBuilder()
         .setCustomId('trade_offer_button')
@@ -4892,9 +6744,19 @@ async function getRobloxAvatarUrl(userId) {
         .setStyle(ButtonStyle.Danger);
 
       const row = new ActionRowBuilder().addComponents(offerButton, deleteButton);
+      const components = [row];
+
+      // Add pagination buttons if there are multiple pages
+      if (paginationData.hasMultiplePages) {
+        const paginationRow = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId(`trade_page_prev_${Date.now()}`).setLabel('Previous').setStyle(ButtonStyle.Secondary).setDisabled(true),
+          new ButtonBuilder().setCustomId(`trade_page_next_${Date.now()}`).setLabel('Next').setStyle(ButtonStyle.Secondary).setDisabled(paginationData.page === paginationData.totalPages)
+        );
+        components.push(paginationRow);
+      }
 
       const targetChannel = redirectTradeChannelId ? interaction.guild.channels.cache.get(redirectTradeChannelId) : interaction.channel;
-      const message = await targetChannel.send({ embeds: [embed], components: [row] });
+      const message = await targetChannel.send({ embeds: [embed], components });
 
       const trade = {
         host: interaction.user,
@@ -4905,10 +6767,13 @@ async function getRobloxAvatarUrl(userId) {
         messageId: message.id,
         accepted: false,
         acceptedUser: null,
-        targetUsername: targetUsername
+        targetUsername: targetUsername,
+        currentPage: 1,
+        itemsPerPage: 10
       };
 
       trades.set(message.id, trade);
+      botLogs.addLog('TRADE_CREATED', 'New trade offer created', interaction.user.id, { tradeId: message.id, targetUsername, diamonds, itemsCount: hostItems.length });
 
       // Increment trade count for user
       const currentCount = userTradeCount.get(interaction.user.id) || 0;
@@ -4918,7 +6783,78 @@ async function getRobloxAvatarUrl(userId) {
       return;
     }
 
+    if (interaction.customId.startsWith('trade_page_prev_') || interaction.customId.startsWith('trade_page_next_')) {
+      const messageId = interaction.message.id;
+      const trade = trades.get(messageId);
+      
+      if (!trade) {
+        await interaction.reply({ content: 'Trade not found.', flags: MessageFlags.Ephemeral });
+        return;
+      }
+
+      const currentPage = trade.currentPage || 1;
+      const totalPages = Math.ceil(trade.hostItems.length / (trade.itemsPerPage || 10));
+      let newPage = currentPage;
+
+      if (interaction.customId.startsWith('trade_page_prev_') && currentPage > 1) newPage--;
+      if (interaction.customId.startsWith('trade_page_next_') && currentPage < totalPages) newPage++;
+
+      trade.currentPage = newPage;
+
+      // Get paginated items
+      const paginationData = paginateTradeItems(trade.hostItems, newPage, trade.itemsPerPage);
+
+      // Update embed with new page
+      const embed = new EmbedBuilder()
+        .setTitle('Trade Offer')
+        .setDescription(`**Host:** <@${trade.host.id}>\n**Status:** Waiting for offers`)
+        .setColor(0x0099ff)
+        .setFooter({ text: 'Version 1.1.3 | Made By Atlas' })
+        .setThumbnail('https://media.discordapp.net/attachments/1461378333278470259/1461514275976773674/B2087062-9645-47D0-8918-A19815D8E6D8.png?ex=696ad4bd&is=6969833d&hm=2f262b12ac860c8d92f40789893fda4f1ea6289bc5eb114c211950700eb69a79&=&format=webp&quality=lossless&width=1376&height=917');
+
+      // Format with pagination info
+      const hostItemsField = totalPages > 1 
+        ? `${paginationData.text}\n\n*Page ${newPage}/${totalPages}*`
+        : paginationData.text;
+
+      addFieldSafely(embed,
+        `Host Items${trade.hostDiamonds > 0 ? ` + ${formatBid(trade.hostDiamonds)} 💎` : ''}`,
+        hostItemsField,
+        false
+      );
+
+      // Update pagination buttons
+      const offerButton = new ButtonBuilder()
+        .setCustomId('trade_offer_button')
+        .setLabel('Make Offer')
+        .setStyle(ButtonStyle.Primary);
+
+      const deleteButton = new ButtonBuilder()
+        .setCustomId(`trade_delete_${interaction.message.createdTimestamp}`)
+        .setLabel('Delete')
+        .setStyle(ButtonStyle.Danger);
+
+      const row = new ActionRowBuilder().addComponents(offerButton, deleteButton);
+      const components = [row];
+
+      if (totalPages > 1) {
+        const paginationRow = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId(`trade_page_prev_${messageId}`).setLabel('Previous').setStyle(ButtonStyle.Secondary).setDisabled(newPage === 1),
+          new ButtonBuilder().setCustomId(`trade_page_next_${messageId}`).setLabel('Next').setStyle(ButtonStyle.Secondary).setDisabled(newPage === totalPages)
+        );
+        components.push(paginationRow);
+      }
+
+      await interaction.update({ embeds: [embed], components });
+      return;
+    }
+
     if (interaction.customId.startsWith('offer_submit_modal_')) {
+      // Defer the reply to avoid timeout on long operations
+      if (!interaction.deferred && !interaction.replied) {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      }
+
       const messageId = interaction.customId.replace('offer_submit_modal_', '');
       const diamondsStr = interaction.fields.getTextInputValue('offer_diamonds') || '0';
 
@@ -4928,6 +6864,13 @@ async function getRobloxAvatarUrl(userId) {
       }
 
       const offerItems = interaction.user.offerItems || [];
+      
+      // Validate item count before finalizing
+      const isValid = await validateItemCount(interaction, 'offerTradeCount', offerItems.length, offerItems);
+      if (!isValid) {
+        return sendErrorReply(interaction, 'E50', 'Item count validation failed. Please try again.');
+      }
+      
       delete interaction.user.offerItems;
       delete interaction.user.messageId;
 
@@ -4936,7 +6879,7 @@ async function getRobloxAvatarUrl(userId) {
 
       // Check if user is the trade host
       if (trade.host.id === interaction.user.id) {
-        return interaction.reply({ content: '❌ You cannot make an offer on your own trade!', flags: 64 });
+        return await sendErrorReply(interaction, 'E04');
       }
 
       // Add offer to trade
@@ -4956,7 +6899,11 @@ async function getRobloxAvatarUrl(userId) {
         await channel.send(`📢 <@${trade.host.id}>, you received an offer from <@${interaction.user.id}>!`);
       }
 
-      await interaction.reply({ content: `Offer submitted! Host will accept or decline.`, flags: 64 });
+      if (interaction.deferred) {
+        await interaction.editReply({ content: `Offer submitted! Host will accept or decline.` });
+      } else {
+        await interaction.reply({ content: `Offer submitted! Host will accept or decline.`, flags: 64 });
+      }
       return;
     }
 
@@ -4966,7 +6913,7 @@ async function getRobloxAvatarUrl(userId) {
 
       // Check if user is the auction host
       if (auction.host.id === interaction.user.id) {
-        return interaction.reply({ content: '❌ You cannot bid on your own auction!', flags: MessageFlags.Ephemeral });
+        return await sendErrorReply(interaction, 'E21');
       }
 
       const diamondsStr = interaction.fields.getTextInputValue('diamonds');
@@ -4984,15 +6931,15 @@ async function getRobloxAvatarUrl(userId) {
 
       // Additional check for 'both' model: if there's a previous bid with only diamonds, don't allow adding diamonds
       if (auction.model === 'both' && diamonds > 0 && auction.bids.some(bid => bid.diamonds > 0 && !bid.items)) {
-        return interaction.reply({ content: 'Since there\'s already a bid with only diamonds, you can only add items to your bid.', flags: MessageFlags.Ephemeral });
+        return sendErrorReply(interaction, 'E73');
       }
 
       // Check if bid is higher than current max
       const maxBid = auction.bids.length > 0 ? Math.max(...auction.bids.map(b => b.diamonds)) : auction.startingPrice;
-      if (auction.model !== 'items' && diamonds <= maxBid) return interaction.reply({ content: `Your bid must be higher than the current highest bid of ${formatBid(maxBid)} 💎.`, flags: MessageFlags.Ephemeral });
+      if (auction.model !== 'items' && diamonds <= maxBid) return sendErrorReply(interaction, 'E79', `Your bid must be higher than the current highest bid of ${formatBid(maxBid)} 💎`);
 
       auction.bids.push({ user: interaction.user, diamonds, items, timestamp: Date.now() });
-      interaction.reply(`Bid placed: ${diamonds > 0 ? `${formatBid(diamonds)} 💎` : ''}${items ? ` and ${items}` : ''}`);
+      await interaction.reply(`Bid placed: ${diamonds > 0 ? `${formatBid(diamonds)} 💎` : ''}${items ? ` and ${items}` : ''}`);
     }
 
     if (interaction.customId === 'auction_modal') {
@@ -5001,13 +6948,13 @@ async function getRobloxAvatarUrl(userId) {
       const startingPriceStr = interaction.fields.getTextInputValue('starting_price');
       const model = interaction.fields.getTextInputValue('model').toLowerCase();
 
-      if (!['diamonds', 'items', 'both'].includes(model)) return interaction.reply({ content: 'Invalid model. Use diamonds, items/offer, or both.', flags: MessageFlags.Ephemeral });
+      if (!['diamonds', 'items', 'both'].includes(model)) return sendErrorReply(interaction, 'E77');
       const time = 60; // Fixed to 60 seconds
       const startingPrice = parseBid(startingPriceStr);
-      if (isNaN(startingPrice) || startingPrice < 0) return interaction.reply({ content: 'Invalid starting price.', flags: MessageFlags.Ephemeral });
+      if (isNaN(startingPrice) || startingPrice < 0) return sendErrorReply(interaction, 'E78');
 
       if (auctions.size > 0) {
-        return interaction.reply({ content: 'An auction is already running in the server. Please wait for it to end.', flags: MessageFlags.Ephemeral });
+        return sendErrorReply(interaction, 'E74');
       }
 
       const auction = {
@@ -5023,7 +6970,7 @@ async function getRobloxAvatarUrl(userId) {
       };
 
       const targetChannel = redirectChannelId ? interaction.guild.channels.cache.get(redirectChannelId) : interaction.channel;
-      if (!targetChannel) return interaction.reply({ content: 'Redirect channel not found.', flags: MessageFlags.Ephemeral });
+      if (!targetChannel) return sendErrorReply(interaction, 'E75');
 
       // Send ping message first
       await targetChannel.send('-# ||<@&1461741243427197132>||');
@@ -5032,7 +6979,7 @@ async function getRobloxAvatarUrl(userId) {
         .setTitle(title)
         .setDescription(`${description}\n\n**Looking For:** ${model}\n**Starting Price:** ${formatBid(startingPrice)} 💎\n**Current Bid:** ${formatBid(startingPrice)} 💎\n**Time Remaining:** ${time}s\n**Hosted by:** ${interaction.user}`)
         .setColor(0x00ff00)
-        .setFooter({ text: 'Version 1.0.9 | Made By Atlas' })
+        .setFooter({ text: 'Version 1.1.3 | Made By Atlas' })
         .setThumbnail('https://media.discordapp.net/attachments/1461378333278470259/1461514275976773674/B2087062-9645-47D0-8918-A19815D8E6D8.png?ex=696ad4bd&is=6969833d&hm=2f262b12ac860c8d92f40789893fda4f1ea6289bc5eb114c211950700eb69a79&=&format=webp&quality=lossless&width=1376&height=917');
 
       const row = new ActionRowBuilder()
@@ -5051,6 +6998,7 @@ async function getRobloxAvatarUrl(userId) {
       auction.messageId = message.id;
       auction.channelId = targetChannel.id;
       auctions.set(targetChannel.id, auction);
+      botLogs.addLog('AUCTION_STARTED', 'New auction started', interaction.user.id, { auctionId: message.id, title, model, startingPrice, time });
 
       await interaction.reply({ content: `Auction "${title}" started in ${targetChannel}!`, flags: MessageFlags.Ephemeral });
 
@@ -5072,7 +7020,7 @@ async function getRobloxAvatarUrl(userId) {
           .setTitle(auction.title)
           .setDescription(`${auction.description}\n\n**Looking For:** ${auction.model}\n**Starting Price:** ${formatBid(auction.startingPrice)} 💎\n**Current Bid:** ${formatBid(currentBid)} 💎\n**Time Remaining:** ${remaining}s\n**Hosted by:** ${auction.host}`)
           .setColor(0x00ff00)
-          .setFooter({ text: 'Version 1.0.9 | Made By Atlas' })
+          .setFooter({ text: 'Version 1.1.3 | Made By Atlas' })
           .setThumbnail('https://media.discordapp.net/attachments/1461378333278470259/1461514275976773674/B2087062-9645-47D0-8918-A19815D8E6D8.png?ex=696ad4bd&is=6969833d&hm=2f262b12ac860c8d92f40789893fda4f1ea6289bc5eb114c211950700eb69a79&=&format=webp&quality=lossless&width=1376&height=917');
         try {
           await message.edit({ embeds: [updatedEmbed], components: [row] });
@@ -5084,114 +7032,72 @@ async function getRobloxAvatarUrl(userId) {
 
     if (interaction.customId.startsWith('proof_image_modal_trade_')) {
       const messageId = interaction.customId.replace('proof_image_modal_trade_', '');
+      const imageUrl = interaction.fields.getTextInputValue('proof_image_url') || '';
       const description = interaction.fields.getTextInputValue('proof_description') || '';
       const trade = trades.get(messageId);
 
       if (!trade) return sendErrorReply(interaction, 'E07', 'Trade not found');
 
-      // Check if user has attachments
-      if (interaction.message && interaction.message.attachments.size > 0) {
-        // User needs to upload image via button with attachments
-        return interaction.reply({ 
-          content: '❌ Please use the file upload feature. Reply to this message with an image attachment.',
-          flags: MessageFlags.Ephemeral 
-        });
+      // Validate URL
+      if (!imageUrl) {
+        return sendErrorReply(interaction, 'E68', 'Image URL is required');
       }
 
-      // For now, show instruction
-      await interaction.reply({
-        content: '📸 Please attach the proof image to your next message in this channel.\n\nAfter you send the image, the proof will be automatically forwarded to the records channel.',
-        ephemeral: false
+      // Add proof image to trade
+      if (!trade.proofImages) {
+        trade.proofImages = [];
+      }
+
+      trade.proofImages.push({
+        url: imageUrl,
+        uploadedBy: interaction.user.id,
+        uploadedAt: new Date().toISOString(),
+        description: description
       });
 
-      // Store waiting state
-      interaction.user.waitingForProof = {
-        tradeMessageId: messageId,
-        description: description,
-        type: 'trade'
-      };
+      // Save trade
+      await redisClient.set(`trade_${messageId}`, JSON.stringify(trade));
+
+      await interaction.reply({
+        content: '✅ Proof image uploaded successfully!',
+        ephemeral: true
+      });
     }
 
     if (interaction.customId === 'proof_image_modal_auction') {
-      const description = interaction.fields.getTextInputValue('proof_description') || '';
-
-      // Show instruction
-      await interaction.reply({
-        content: '📸 Please attach the proof image to your next message in this channel.\n\nAfter you send the image, the proof will be automatically forwarded to the records channel.',
-        ephemeral: false
-      });
-
-      // Store waiting state
-      interaction.user.waitingForProof = {
-        auctionProofMessageId: interaction.message?.id || null,
-        description: description,
-        type: 'auction'
-      };
-    }
-
-    if (interaction.customId.startsWith('proof_image_modal_giveaway_')) {
-      const messageId = interaction.customId.replace('proof_image_modal_giveaway_', '');
       const imageUrl = interaction.fields.getTextInputValue('proof_image_url') || '';
       const description = interaction.fields.getTextInputValue('proof_description') || '';
-      const giveawayData = finishedGiveaways.get(messageId);
-
-      if (!giveawayData) {
-        return sendErrorReply(interaction, 'E36', 'Giveaway not found');
-      }
 
       // Validate URL
       if (!imageUrl) {
-        return interaction.reply({ content: '❌ Please provide a valid image URL.', flags: MessageFlags.Ephemeral });
+        return sendErrorReply(interaction, 'E68', 'Image URL is required');
       }
 
-      try {
-        const channel = interaction.guild.channels.cache.get(giveawayData.channelId);
-        if (!channel) {
-          return interaction.reply({ content: '❌ Giveaway channel not found.', flags: MessageFlags.Ephemeral });
-        }
-
-        // Fetch the original giveaway message
-        const giveawayMessage = await channel.messages.fetch(messageId);
-        if (!giveawayMessage) {
-          return interaction.reply({ content: '❌ Giveaway message not found.', flags: MessageFlags.Ephemeral });
-        }
-
-        // Update thumbnail of the giveaway embed
-        if (giveawayMessage.embeds.length > 0) {
-          const updatedEmbed = EmbedBuilder.from(giveawayMessage.embeds[0])
-            .setThumbnail(imageUrl);
-          await giveawayMessage.edit({ embeds: [updatedEmbed] });
-        }
-
-        // Send proof to records channel
-        const proofChannelId = '1462197194646880368';
-        const proofChannel = interaction.guild.channels.cache.get(proofChannelId);
-
-        if (proofChannel) {
-          const proofEmbed = new EmbedBuilder()
-            .setTitle('🎁 Giveaway Proof')
-            .setDescription(`**Host:** ${giveawayData.host}\n**Winner:** ${giveawayData.winner}\n\n**Note:** ${description || 'No description provided'}`)
-            .setColor(0xFF1493)
-            .setImage(imageUrl)
-            .setFooter({ text: `Submitted by ${interaction.user.username}` })
-            .setTimestamp();
-
-          await proofChannel.send({ embeds: [proofEmbed] });
-        }
-
-        await interaction.reply({ content: '✅ Proof image has been submitted and the giveaway thumbnail updated!', flags: MessageFlags.Ephemeral });
-      } catch (error) {
-        console.error('Error processing giveaway proof:', error);
-        await interaction.reply({ content: '❌ Error processing proof image.', flags: MessageFlags.Ephemeral });
+      // Store proof image in user's proof list
+      if (!interaction.user.auctionProofs) {
+        interaction.user.auctionProofs = [];
       }
+
+      interaction.user.auctionProofs.push({
+        url: imageUrl,
+        uploadedAt: new Date().toISOString(),
+        description: description,
+        auctionMessageId: interaction.message?.id || null
+      });
+
+      await interaction.reply({
+        content: '✅ Proof image uploaded successfully!',
+        ephemeral: true
+      });
     }
+
 
     if (interaction.customId === 'giveaway_diamonds_modal') {
       const diamondsStr = interaction.fields.getTextInputValue('giveaway_diamonds_amount');
       const diamonds = parseBid(diamondsStr);
 
       if (diamonds <= 0) {
-        return interaction.reply({ content: 'Please enter a valid amount of diamonds.', flags: MessageFlags.Ephemeral });
+        return sendErrorReply(interaction, 'E76');
       }
 
       // Store diamonds as item
@@ -5231,7 +7137,6 @@ async function getRobloxAvatarUrl(userId) {
     }
   }
 });
-
 async function updateTradeEmbed(guild, trade, messageId) {
   if (!guild) return;
   
@@ -5242,15 +7147,11 @@ async function updateTradeEmbed(guild, trade, messageId) {
     const message = await channel.messages.fetch(messageId);
     if (!message) return;
 
-    // Paginate host items (15 per page)
-    const hostItemsPages = paginateItems(trade.hostItems);
-    const hostPage = hostItemsPages[0]; // Show first page initially
-    
     // Create embed with grid layout
     const embed = new EmbedBuilder()
       .setTitle('Trade Offer')
       .setColor(trade.accepted ? 0x00ff00 : 0x0099ff)
-      .setFooter({ text: 'Version 1.0.9 | Made By Atlas' })
+      .setFooter({ text: 'Version 1.1.3 | Made By Atlas' })
       .setThumbnail('https://media.discordapp.net/attachments/1461378333278470259/1461514275976773674/B2087062-9645-47D0-8918-A19815D8E6D8.png?ex=696ad4bd&is=6969833d&hm=2f262b12ac860c8d92f40789893fda4f1ea6289bc5eb114c211950700eb69a79&=&format=webp&quality=lossless&width=1376&height=917');
 
     if (trade.accepted) {
@@ -5259,93 +7160,59 @@ async function updateTradeEmbed(guild, trade, messageId) {
       } else {
         embed.setDescription(`**Status:** ✅ Trade Accepted\n\n**Host:** <@${trade.host.id}>\n**Guest:** <@${trade.acceptedUser.id}>`);
       }
-    } else if (trade.offers.length > 0) {
-      embed.setDescription(`**Status:** Awaiting Host Decision\n\n**Host:** <@${trade.host.id}>`);
     } else {
-      embed.setDescription(`**Status:** Waiting for offers\n\n**Host:** <@${trade.host.id}>`);
+      embed.setDescription(`**Status:** ${trade.offers.length > 0 ? `Received ${trade.offers.length} offer${trade.offers.length > 1 ? 's' : ''}` : 'Waiting for offers'}\n\n**Host:** <@${trade.host.id}>`);
     }
 
-    // Format host items field name with pagination info if needed
-    let hostFieldName = `Host${trade.hostDiamonds > 0 ? ` (+ ${formatBid(trade.hostDiamonds)} 💎)` : ''}`;
-    if (hostItemsPages.length > 1) {
-      hostFieldName += ` [${hostPage.page}/${hostPage.totalPages}]`;
-    }
-    
-    if (hostFieldName && hostFieldName.trim() !== '') {
-      embed.addFields({
-        name: hostFieldName,
-        value: hostPage.text || 'None',
-        inline: true
-      });
-    }
+    // Paginate host items
+    const hostPaginationData = paginateTradeItems(trade.hostItems, 1, 10);
+    const hostItemsField = hostPaginationData.totalPages > 1 
+      ? `${hostPaginationData.text}\n\n*Page 1/${hostPaginationData.totalPages}*`
+      : hostPaginationData.text;
 
-    if (trade.offers.length > 0 && !trade.accepted) {
-      const lastOffer = trade.offers[trade.offers.length - 1];
-      // Paginate guest items (15 per page)
-      const guestItemsPages = paginateItems(lastOffer.items);
-      const guestPage = guestItemsPages[0]; // Show first page initially
-      
-      let guestFieldName = `${lastOffer.user.displayName || lastOffer.user.username}${lastOffer.diamonds > 0 ? ` (+ ${formatBid(lastOffer.diamonds)} 💎)` : ''}`;
-      if (guestItemsPages.length > 1) {
-        guestFieldName += ` [${guestPage.page}/${guestPage.totalPages}]`;
-      }
-      
-      if (guestFieldName && guestFieldName.trim() !== '') {
-        embed.addFields({
-          name: guestFieldName,
-          value: guestPage.text || 'None',
-          inline: true
-        });
-      }
-    } else if (trade.accepted) {
+    addFieldSafely(embed,
+      `Host${trade.hostDiamonds > 0 ? ` (+ ${formatBid(trade.hostDiamonds)} 💎)` : ''}`,
+      hostItemsField,
+      true
+    );
+
+    if (trade.accepted) {
       const acceptedOffer = trade.offers.find(o => o.user.id === trade.acceptedUser.id);
       if (acceptedOffer) {
-        // Paginate guest items (15 per page)
-        const guestItemsPages = paginateItems(acceptedOffer.items);
-        const guestPage = guestItemsPages[0]; // Show first page initially
-        
-        let guestFieldName = `${acceptedOffer.user.displayName || acceptedOffer.user.username}${acceptedOffer.diamonds > 0 ? ` (+ ${formatBid(acceptedOffer.diamonds)} 💎)` : ''}`;
-        if (guestItemsPages.length > 1) {
-          guestFieldName += ` [${guestPage.page}/${guestPage.totalPages}]`;
-        }
-        
-        if (guestFieldName && guestFieldName.trim() !== '') {
-          embed.addFields({
-            name: guestFieldName,
-            value: guestPage.text || 'None',
-            inline: true
-          });
-        }
+        const acceptedPaginationData = paginateTradeItems(acceptedOffer.items, 1, 10);
+        const acceptedItemsField = acceptedPaginationData.totalPages > 1 
+          ? `${acceptedPaginationData.text}\n\n*Page 1/${acceptedPaginationData.totalPages}*`
+          : acceptedPaginationData.text;
+
+        addFieldSafely(embed,
+          `${acceptedOffer.user.displayName || acceptedOffer.user.username}${acceptedOffer.diamonds > 0 ? ` (+ ${formatBid(acceptedOffer.diamonds)} 💎)` : ''}`,
+          acceptedItemsField,
+          true
+        );
       }
     }
 
     let components = [];
 
     if (!trade.accepted && trade.offers.length > 0) {
-      const acceptButton = new ButtonBuilder()
-        .setCustomId(`trade_accept_${messageId}`)
-        .setLabel('Accept')
-        .setStyle(ButtonStyle.Success);
-
-      const declineButton = new ButtonBuilder()
-        .setCustomId(`trade_decline_${messageId}`)
-        .setLabel('Decline')
-        .setStyle(ButtonStyle.Danger);
-
-      components.push(new ActionRowBuilder().addComponents(acceptButton, declineButton));
-    } else if (trade.accepted) {
-      // Add Upload Proof Image button for accepted trades
-      const proofButton = new ButtonBuilder()
-        .setCustomId(`upload_proof_trade_${messageId}`)
-        .setLabel('Upload Proof Image')
-        .setStyle(ButtonStyle.Primary);
+      const viewOffersButton = new ButtonBuilder()
+        .setCustomId(`trade_view_offers_${messageId}`)
+        .setLabel(`View Offers (${trade.offers.length})`)
+        .setStyle(ButtonStyle.Secondary);
 
       const deleteButton = new ButtonBuilder()
         .setCustomId(`trade_delete_${Date.now()}`)
         .setLabel('Delete')
         .setStyle(ButtonStyle.Danger);
 
-      components.push(new ActionRowBuilder().addComponents(proofButton, deleteButton));
+      components.push(new ActionRowBuilder().addComponents(viewOffersButton, deleteButton));
+    } else if (trade.accepted) {
+      const deleteButton = new ButtonBuilder()
+        .setCustomId(`trade_delete_${Date.now()}`)
+        .setLabel('Delete')
+        .setStyle(ButtonStyle.Danger);
+
+      components.push(new ActionRowBuilder().addComponents(deleteButton));
     } else if (!trade.accepted) {
       const offerButton = new ButtonBuilder()
         .setCustomId('trade_offer_button')
@@ -5389,7 +7256,7 @@ async function endAuction(channel) {
       .setTitle(auction.title)
       .setDescription(`${auction.description}\n\n**Looking For:** ${auction.model}\n**Starting Price:** ${formatBid(auction.startingPrice)} 💎\n**Winning Bid:** ${formatBid(winner.diamonds)} 💎${winner.items ? ` and ${winner.items}` : ''}\n**Winner:** ${winner.user}\n**Hosted by:** ${auction.host}`)
       .setColor(0xff0000) // Red color
-      .setFooter({ text: 'Version 1.0.9 | Made By Atlas' })
+      .setFooter({ text: 'Version 1.1.3 | Made By Atlas' })
       .setThumbnail('https://media.discordapp.net/attachments/1461378333278470259/1461514275976773674/B2087062-9645-47D0-8918-A19815D8E6D8.png?ex=696ad4bd&is=6969833d&hm=2f262b12ac860c8d92f40789893fda4f1ea6289bc5eb114c211950700eb69a79&=&format=webp&quality=lossless&width=1376&height=917');
 
     await message.edit({ embeds: [finalEmbed], components: [] }); // Remove buttons
@@ -5397,32 +7264,75 @@ async function endAuction(channel) {
     console.error('Error updating auction embed:', e);
   }
 
-  const embed = new EmbedBuilder()
-    .setTitle('Auction Ended!')
-    .setDescription(`**Title:** ${auction.title}\n**Winner:** ${winner.user}\n**Bid:** ${winner.diamonds} 💎${winner.items ? ` and ${winner.items}` : ''}`)
-    .setColor(0xff0000)
-    .setFooter({ text: 'Version 1.0.9 | Made By Atlas' });
+  // Create private channel for auction
+  const host = await channel.guild.members.fetch(auction.host.id);
+  const winnerMember = await channel.guild.members.fetch(winner.user.id);
+  const channelName = `auction-${auction.host.id}-${winner.user.id}`;
+  const createAuctionChannel = channel.guild.channels.cache.get('1461496756171964583');
+  const auctionChannel = await channel.guild.channels.create({
+    name: channelName,
+    type: 0, // text channel
+    parent: '1461483410194436107',
+    position: createAuctionChannel ? createAuctionChannel.position + 1 : 0,
+    permissionOverwrites: [
+      {
+        id: channel.guild.id,
+        deny: ['ViewChannel'],
+      },
+      {
+        id: client.user.id,
+        allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'],
+      },
+      {
+        id: auction.host.id,
+        allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'],
+      },
+      {
+        id: winner.user.id,
+        allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'],
+      },
+    ],
+  });
 
-  // Add Upload Proof Image button
+  // Send DMs
+  try {
+    await host.send(`🏆 Your auction "${auction.title}" has ended! The winner is <@${winner.user.id}> with a bid of ${formatBid(winner.diamonds)} 💎${winner.items ? ` and ${winner.items}` : ''}! Check the channel: ${auctionChannel}`);
+  } catch (e) {
+    console.error('Error sending DM to host:', e);
+  }
+  try {
+    await winnerMember.send(`🏆 Congratulations! You won the auction "${auction.title}" hosted by <@${auction.host.id}> with a bid of ${formatBid(winner.diamonds)} 💎${winner.items ? ` and ${winner.items}` : ''}! Check the channel: ${auctionChannel}`);
+  } catch (e) {
+    console.error('Error sending DM to winner:', e);
+  }
+
+  // Send embed in the new channel
+  const proofEmbed = new EmbedBuilder()
+    .setTitle('Auction Proof Required')
+    .setDescription(`**Host:** <@${auction.host.id}>\n**Winner:** <@${winner.user.id}>\n**Bid:** ${formatBid(winner.diamonds)} 💎${winner.items ? ` and ${winner.items}` : ''}\n\nPlease upload proof image of the completed auction.`)
+    .setColor(0xffa500)
+    .setFooter({ text: 'Version 1.1.3 | Made By Atlas' });
+
   const proofButton = new ButtonBuilder()
-    .setCustomId(`upload_proof_auction_${channel.id}`)
+    .setCustomId(`upload_proof_auction_${Date.now()}`)
     .setLabel('Upload Proof Image')
     .setStyle(ButtonStyle.Primary);
 
-  const row = new ActionRowBuilder().addComponents(proofButton);
-
-  const proofMessage = await channel.send({ embeds: [embed], components: [row] });
+  const proofMessageInChannel = await auctionChannel.send({ embeds: [proofEmbed], components: [new ActionRowBuilder().addComponents(proofButton)] });
 
   // Store finished auction data for proof handler
-  finishedAuctions.set(proofMessage.id, {
+  finishedAuctions.set(proofMessageInChannel.id, {
     host: auction.host,
     title: auction.title,
     winner: winner.user,
     diamonds: winner.diamonds,
     items: winner.items,
     channelId: channel.id,
-    auctionChannelId: '1461849894615646309'
+    auctionChannelId: auctionChannel.id
   });
+
+  // Notify in original channel
+  await channel.send(`🏆 Auction "${auction.title}" ended! Winner: ${winner.user} with ${formatBid(winner.diamonds)} 💎${winner.items ? ` and ${winner.items}` : ''}. Check your DMs for the auction channel.`);
 }
 
 client.login(process.env.TOKEN);
